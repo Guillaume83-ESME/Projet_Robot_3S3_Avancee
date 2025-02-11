@@ -175,7 +175,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               ),
               SizedBox(width: 10),
               Text(
-                'ROMRO',
+                'R.MRO',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
