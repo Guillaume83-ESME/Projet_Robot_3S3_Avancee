@@ -98,21 +98,69 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
   }
 
   void deleteCommand(Command command) {
-    setState(() {
-      widget.commands.remove(command);
-      filteredCommands.remove(command);
-      saveCommands();
-    });
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Confirmation'),
+          content: Text('Êtes-vous sûr de vouloir supprimer cette commande ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  widget.commands.remove(command);
+                  filteredCommands.remove(command);
+                  saveCommands();
+                });
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Commande supprimée')),
+                );
+              },
+              child: Text('Supprimer'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void deleteSelectedCommands() {
-    setState(() {
-      widget.commands.removeWhere((command) => selectedCommands.contains(command));
-      filteredCommands.removeWhere((command) => selectedCommands.contains(command));
-      selectedCommands.clear();
-      isSelecting = false;
-      saveCommands();
-    });
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Confirmation'),
+          content: Text('Êtes-vous sûr de vouloir supprimer les commandes sélectionnées ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  widget.commands.removeWhere((command) => selectedCommands.contains(command));
+                  filteredCommands.removeWhere((command) => selectedCommands.contains(command));
+                  selectedCommands.clear();
+                  isSelecting = false;
+                  saveCommands();
+                });
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Commandes sélectionnées supprimées')),
+                );
+              },
+              child: Text('Supprimer'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void toggleSelection(Command command) {
@@ -146,7 +194,9 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+            colors: Theme.of(context).brightness == Brightness.dark
+                ? [Colors.grey[900]!, Colors.grey[800]!]
+                : [Color(0xFF1A237E), Color(0xFF3949AB)],
           ),
         ),
         child: SafeArea(
@@ -250,7 +300,7 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
                 applyFilter(newValue);
               }
             },
-            dropdownColor: Color(0xFF3949AB),
+            dropdownColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey[800] : Color(0xFF3949AB),
             style: TextStyle(color: Colors.white),
             icon: Icon(Icons.arrow_drop_down, color: Colors.white),
           ),
@@ -304,7 +354,9 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: selectedCommands.contains(command)
-                  ? [Colors.blue.withOpacity(0.7), Colors.blue]
+                  ? [Colors.blue[700]!, Colors.blue[500]!]
+                  : Theme.of(context).brightness == Brightness.dark
+                  ? [Colors.grey[800]!, Colors.grey[700]!]
                   : [Colors.white, Colors.white70],
             ),
             borderRadius: BorderRadius.circular(20),
@@ -321,9 +373,21 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
             contentPadding: EdgeInsets.all(16),
             title: Text(
               'ID: ${command.id} - ${command.action}',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white
+                    : Colors.black87,
+              ),
             ),
-            subtitle: Text(command.time),
+            subtitle: Text(
+              command.time,
+              style: TextStyle(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white70
+                    : Colors.black54,
+              ),
+            ),
             trailing: IconButton(
               icon: Icon(Icons.delete, color: Colors.red),
               onPressed: () => deleteCommand(command),

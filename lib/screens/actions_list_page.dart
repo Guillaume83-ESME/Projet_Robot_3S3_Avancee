@@ -14,7 +14,7 @@ class ActionsListPage extends StatefulWidget {
 }
 
 class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProviderStateMixin {
-  List<RobotAction> filteredActions = [];
+  late List<RobotAction> filteredActions;
   List<RobotAction> selectedActions = [];
   TextEditingController searchController = TextEditingController();
   String selectedFilter = 'ID croissant';
@@ -34,7 +34,7 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
   @override
   void initState() {
     super.initState();
-    filteredActions = widget.actions;
+    filteredActions = List.from(widget.actions);
     loadActions();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 1000),
@@ -59,9 +59,10 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
     if (jsonString != null) {
       final jsonList = json.decode(jsonString) as List<dynamic>;
       setState(() {
-        widget.actions.clear(); // Clear existing actions
+        widget.actions.clear();
         widget.actions.addAll(jsonList.map((e) => RobotAction.fromJson(e)).toList());
-        filteredActions = List.from(widget.actions); // Create a new list
+        filteredActions = List.from(widget.actions);
+        applyFilter(selectedFilter);
       });
     }
   }
@@ -75,45 +76,91 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
   void applyFilter(String filter) {
     setState(() {
       selectedFilter = filter;
-      switch (filter) {
-        case 'ID croissant':
-          filteredActions.sort((a, b) => a.id.compareTo(b.id));
-          break;
-        case 'ID décroissant':
-          filteredActions.sort((a, b) => b.id.compareTo(a.id));
-          break;
-        case 'Nom A-Z':
-          filteredActions.sort((a, b) => a.description.compareTo(b.description));
-          break;
-        case 'Nom Z-A':
-          filteredActions.sort((a, b) => b.description.compareTo(a.description));
-          break;
-        case 'Date récente':
-          filteredActions.sort((a, b) => b.time.compareTo(a.time));
-          break;
-        case 'Date ancienne':
-          filteredActions.sort((a, b) => a.time.compareTo(b.time));
-          break;
-      }
+      filteredActions.sort((a, b) {
+        switch (filter) {
+          case 'ID croissant':
+            return a.id.compareTo(b.id);
+          case 'ID décroissant':
+            return b.id.compareTo(a.id);
+          case 'Nom A-Z':
+            return a.description.compareTo(b.description);
+          case 'Nom Z-A':
+            return b.description.compareTo(a.description);
+          case 'Date récente':
+            return b.time.compareTo(a.time);
+          case 'Date ancienne':
+            return a.time.compareTo(b.time);
+          default:
+            return 0;
+        }
+      });
     });
   }
 
   void deleteAction(RobotAction action) {
-    setState(() {
-      widget.actions.remove(action);
-      filteredActions.remove(action);
-      saveActions();
-    });
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Confirmation'),
+          content: Text('Êtes-vous sûr de vouloir supprimer cette action ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  widget.actions.remove(action);
+                  filteredActions.remove(action);
+                  saveActions();
+                });
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Action supprimée')),
+                );
+              },
+              child: Text('Supprimer'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void deleteSelectedActions() {
-    setState(() {
-      widget.actions.removeWhere((action) => selectedActions.contains(action));
-      filteredActions.removeWhere((action) => selectedActions.contains(action));
-      selectedActions.clear();
-      isSelecting = false;
-      saveActions();
-    });
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Confirmation'),
+          content: Text('Êtes-vous sûr de vouloir supprimer les actions sélectionnées ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  widget.actions.removeWhere((action) => selectedActions.contains(action));
+                  filteredActions.removeWhere((action) => selectedActions.contains(action));
+                  selectedActions.clear();
+                  isSelecting = false;
+                  saveActions();
+                });
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Actions sélectionnées supprimées')),
+                );
+              },
+              child: Text('Supprimer'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void toggleSelection(RobotAction action) {
@@ -139,7 +186,6 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
     });
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -148,7 +194,9 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+            colors: Theme.of(context).brightness == Brightness.dark
+                ? [Colors.grey[900]!, Colors.grey[800]!]
+                : [Color(0xFF1A237E), Color(0xFF3949AB)],
           ),
         ),
         child: SafeArea(
@@ -247,7 +295,7 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
                 applyFilter(newValue);
               }
             },
-            dropdownColor: Color(0xFF3949AB),
+            dropdownColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey[800] : Color(0xFF3949AB),
             style: TextStyle(color: Colors.white),
             icon: Icon(Icons.arrow_drop_down, color: Colors.white),
           ),
@@ -301,7 +349,9 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: selectedActions.contains(action)
-                  ? [Colors.blue.withOpacity(0.7), Colors.blue]
+                  ? [Colors.blue[700]!, Colors.blue[500]!]
+                  : Theme.of(context).brightness == Brightness.dark
+                  ? [Colors.grey[800]!, Colors.grey[700]!]
                   : [Colors.white, Colors.white70],
             ),
             borderRadius: BorderRadius.circular(20),
@@ -318,9 +368,21 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
             contentPadding: EdgeInsets.all(16),
             title: Text(
               'ID: ${action.id} - ${action.description}',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white
+                    : Colors.black87,
+              ),
             ),
-            subtitle: Text(action.time),
+            subtitle: Text(
+              action.time,
+              style: TextStyle(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white70
+                    : Colors.black54,
+              ),
+            ),
             trailing: IconButton(
               icon: Icon(Icons.delete, color: Colors.red),
               onPressed: () => deleteAction(action),

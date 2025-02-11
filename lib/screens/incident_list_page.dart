@@ -231,7 +231,9 @@ class _IncidentListPageState extends State<IncidentListPage> with SingleTickerPr
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+            colors: Theme.of(context).brightness == Brightness.dark
+                ? [Colors.grey[900]!, Colors.grey[800]!]
+                : [Color(0xFF1A237E), Color(0xFF3949AB)],
           ),
         ),
         child: SafeArea(
@@ -340,7 +342,7 @@ class _IncidentListPageState extends State<IncidentListPage> with SingleTickerPr
                 applyFilter(newValue);
               }
             },
-            dropdownColor: Color(0xFF3949AB),
+            dropdownColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey[800] : Color(0xFF3949AB),
             style: TextStyle(color: Colors.white),
             icon: Icon(Icons.arrow_drop_down, color: Colors.white),
           ),
@@ -394,7 +396,9 @@ class _IncidentListPageState extends State<IncidentListPage> with SingleTickerPr
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: selectedIncidents.contains(incident)
-                  ? [Colors.blue.withOpacity(0.7), Colors.blue]
+                  ? [Colors.blue[700]!, Colors.blue[500]!]
+                  : Theme.of(context).brightness == Brightness.dark
+                  ? [Colors.grey[800]!, Colors.grey[700]!]
                   : [Colors.white, Colors.white70],
             ),
             borderRadius: BorderRadius.circular(20),
@@ -411,9 +415,21 @@ class _IncidentListPageState extends State<IncidentListPage> with SingleTickerPr
             contentPadding: EdgeInsets.all(16),
             title: Text(
               'ID: ${incident.id} - ${incident.description}',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white
+                    : Colors.black87,
+              ),
             ),
-            subtitle: Text(incident.time),
+            subtitle: Text(
+              incident.time,
+              style: TextStyle(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white70
+                    : Colors.black54,
+              ),
+            ),
             trailing: IconButton(
               icon: Icon(Icons.delete, color: Colors.red),
               onPressed: () => deleteIndividualIncident(incident),

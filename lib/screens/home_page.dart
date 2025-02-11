@@ -31,6 +31,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     super.initState();
     loadCommands();
     loadActions();
+    loadIncidents();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -64,6 +65,17 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
+  Future<void> loadIncidents() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? incidentsJson = prefs.getStringList('incidents');
+    if (incidentsJson != null) {
+      setState(() {
+        incidents.clear();
+        incidents.addAll(incidentsJson.map((json) => Incident.fromJson(jsonDecode(json))).toList());
+      });
+    }
+  }
+
   Future<void> saveActions() async {
     final prefs = await SharedPreferences.getInstance();
     List<String> actionsJson = actions.map((action) => jsonEncode(action.toJson())).toList();
@@ -74,6 +86,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     final prefs = await SharedPreferences.getInstance();
     List<String> commandsJson = commands.map((command) => jsonEncode(command.toJson())).toList();
     await prefs.setStringList('commands', commandsJson);
+  }
+
+  Future<void> saveIncidents() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> incidentsJson = incidents.map((incident) => jsonEncode(incident.toJson())).toList();
+    await prefs.setStringList('incidents', incidentsJson);
   }
 
   void _createTestAction(String actionType) async {
@@ -94,27 +112,29 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
-  void _resetActions() {
+  void _resetActions() async {
     setState(() {
       actions.clear();
     });
+    await saveActions();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Actions réinitialisées !')));
   }
 
-  void _resetIncidents() {
+  void _resetIncidents() async {
     setState(() {
       incidents.clear();
     });
+    await saveIncidents();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Incidents réinitialisés !')));
   }
 
-  void _resetCommands() {
+  void _resetCommands() async {
     setState(() {
       commands.clear();
     });
+    await saveCommands();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Commandes réinitialisées !')));
   }
-
 
   void _connectBluetooth() {
     Navigator.push(
