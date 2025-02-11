@@ -1,0 +1,31 @@
+name: Projet_Robot
+description: "A new Flutter project."
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  intl: ^0.17.0
+  cupertino_icons: ^1.0.8
+  flutter_blue_plus: ^1.34.5  # Assurez-vous que c'est la bonne version
+  app_settings: ^5.0.0
+  provider: ^6.0.0 # Assurez-vous d'inclure cette ligne
+
+
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  shared_preferences: ^2.2.2
+  permission_handler: ^11.1.0
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/  # Inclut toutes les images dans ce répertoire
