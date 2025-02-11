@@ -13,12 +13,14 @@ class CommandListPage extends StatefulWidget {
   _CommandListPageState createState() => _CommandListPageState();
 }
 
-class _CommandListPageState extends State<CommandListPage> {
+class _CommandListPageState extends State<CommandListPage> with SingleTickerProviderStateMixin {
   List<Command> filteredCommands = [];
   List<Command> selectedCommands = [];
   TextEditingController searchController = TextEditingController();
   String selectedFilter = 'ID croissant';
   bool isSelecting = false;
+  late AnimationController _animationController;
+  late Animation<double> _animation;
 
   final List<String> filterOptions = [
     'ID croissant',
@@ -32,27 +34,42 @@ class _CommandListPageState extends State<CommandListPage> {
   @override
   void initState() {
     super.initState();
+    filteredCommands = widget.commands;
     loadCommands();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    );
+    _animationController.forward();
   }
 
-  Future<void> saveCommands() async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> commandsJson = filteredCommands.map((command) => jsonEncode(command.toJson())).toList();
-    await prefs.setStringList('commands', commandsJson);
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   Future<void> loadCommands() async {
     final prefs = await SharedPreferences.getInstance();
-    List<String>? commandsJson = prefs.getStringList('commands');
-
-    if (commandsJson != null) {
+    final jsonString = prefs.getString('commands');
+    if (jsonString != null) {
+      final jsonList = json.decode(jsonString) as List<dynamic>;
       setState(() {
-        filteredCommands = commandsJson.map((json) => Command.fromJson(jsonDecode(json))).toList();
-        widget.commands.clear();
-        widget.commands.addAll(filteredCommands);
+        widget.commands.clear(); // Clear existing commands
+        widget.commands.addAll(jsonList.map((e) => Command.fromJson(e)).toList());
+        filteredCommands = List.from(widget.commands); // Create a new list
       });
-      applyFilter(selectedFilter); // Apply the filter after loading
     }
+  }
+
+  Future<void> saveCommands() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = json.encode(widget.commands.map((e) => e.toJson()).toList());
+    await prefs.setString('commands', jsonString);
   }
 
   void applyFilter(String filter) {
@@ -78,73 +95,25 @@ class _CommandListPageState extends State<CommandListPage> {
           filteredCommands.sort((a, b) => a.time.compareTo(b.time));
           break;
       }
-      saveCommands(); // Save after applying filter
     });
   }
 
   void deleteCommand(Command command) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Confirmation'),
-          content: Text('Êtes-vous sûr de vouloir supprimer cette commande ?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close the dialog
-              },
-              child: Text('Annuler'),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  filteredCommands.remove(command);
-                  widget.commands.remove(command);
-                });
-                saveCommands(); // Save changes after deletion
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Commande supprimée : ${command.action}')),
-                );
-                Navigator.of(context).pop(); // Close the dialog
-              },
-              child: Text('Supprimer'),
-            ),
-          ],
-        );
-      },
-    );
+    setState(() {
+      widget.commands.remove(command);
+      filteredCommands.remove(command);
+      selectedCommands.remove(command);
+      saveCommands();
+    });
   }
 
   void deleteSelectedCommands() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Confirmation'),
-          content: Text('Êtes-vous sûr de vouloir supprimer ces commandes ?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text('Annuler'),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  filteredCommands.removeWhere((command) => selectedCommands.contains(command));
-                  widget.commands.removeWhere((command) => selectedCommands.contains(command));
-                  selectedCommands.clear();
-                });
-                saveCommands(); // Save changes after bulk deletion
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Commandes supprimées !')));
-                Navigator.of(context).pop(); // Close the dialog
-              },
-              child: Text('Supprimer'),
-            ),
-          ],
-        );
-      },
-    );
+    setState(() {
+      widget.commands.removeWhere((command) => selectedCommands.contains(command));
+      filteredCommands.removeWhere((command) => selectedCommands.contains(command));
+      selectedCommands.clear();
+      saveCommands();
+    });
   }
 
   void toggleSelection(Command command) {
@@ -160,7 +129,6 @@ class _CommandListPageState extends State<CommandListPage> {
   void startSelectionMode() {
     setState(() {
       isSelecting = true;
-      selectedCommands.clear();
     });
   }
 
@@ -174,129 +142,258 @@ class _CommandListPageState extends State<CommandListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Liste des Commandes'),
-        actions: [
-          if (isSelecting)
-            IconButton(
-              icon: Icon(Icons.delete),
-              onPressed: () {
-                if (selectedCommands.isNotEmpty) {
-                  deleteSelectedCommands();
-                }
-              },
-            ),
-          if (isSelecting)
-            IconButton(
-              icon: Icon(Icons.check),
-              onPressed: endSelectionMode,
-            ),
-        ],
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildAppBar(),
+              _buildSearchAndFilter(),
+              Expanded(child: _buildCommandsList()),
+            ],
+          ),
+        ),
       ),
-      body: Column(
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showResetConfirmation,
+        child: Icon(Icons.refresh),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  Widget _buildAppBar() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          Text(
+            'Liste des Commandes',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              shadows: [
+                Shadow(
+                  blurRadius: 10.0,
+                  color: Colors.black.withOpacity(0.3),
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+          ),
           Row(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: searchController,
-                  decoration: InputDecoration(labelText: 'Recherche...'),
-                  onChanged: (value) {
-                    String query = value.toLowerCase();
-                    setState(() {
-                      filteredCommands = widget.commands.where((command) {
-                        return command.id.toString().contains(query) || command.action.toLowerCase().contains(query);
-                      }).toList();
-                      applyFilter(selectedFilter); // Reapply filter after search
-                    });
+              if (isSelecting)
+                IconButton(
+                  icon: Icon(Icons.delete, color: Colors.white),
+                  onPressed: () {
+                    if (selectedCommands.isNotEmpty) {
+                      deleteSelectedCommands();
+                    }
                   },
                 ),
-              ),
-              DropdownButton<String>(
-                value: selectedFilter,
-                items: filterOptions.map((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value),
-                  );
-                }).toList(),
-                onChanged: (String? newValue) {
-                  if (newValue != null) {
-                    applyFilter(newValue);
-                  }
-                },
+              IconButton(
+                icon: Icon(isSelecting ? Icons.close : Icons.select_all, color: Colors.white),
+                onPressed: isSelecting ? endSelectionMode : startSelectionMode,
               ),
             ],
           ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: filteredCommands.length,
-              itemBuilder: (context, index) {
-                return GestureDetector(
-                  onLongPress: () {
-                    startSelectionMode();
-                    toggleSelection(filteredCommands[index]);
-                  },
-                  child: ListTile(
-                    title: Text('ID: ${filteredCommands[index].id} - ${filteredCommands[index].action}'),
-                    subtitle: Text(filteredCommands[index].time),
-                    tileColor: selectedCommands.contains(filteredCommands[index]) ? Colors.blue[100] : null,
-                    trailing: IconButton(
-                      icon: Icon(Icons.delete),
-                      onPressed: () => deleteCommand(filteredCommands[index]), // Call delete with confirmation
-                    ),
-                    onTap: () {
-                      if (!isSelecting) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => CommandDetailPage(command: filteredCommands[index])),
-                        );
-                      } else {
-                        toggleSelection(filteredCommands[index]);
-                      }
-                    },
-                  ),
-                );
-              },
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchAndFilter() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        children: [
+          TextField(
+            controller: searchController,
+            decoration: InputDecoration(
+              labelText: 'Recherche...',
+              labelStyle: TextStyle(color: Colors.white70),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white70),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
+              prefixIcon: Icon(Icons.search, color: Colors.white70),
             ),
+            style: TextStyle(color: Colors.white),
+            onChanged: _onSearchChanged,
+          ),
+          SizedBox(height: 8),
+          DropdownButton<String>(
+            value: selectedFilter,
+            items: filterOptions.map((String value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text(value, style: TextStyle(color: Colors.white)),
+              );
+            }).toList(),
+            onChanged: (String? newValue) {
+              if (newValue != null) {
+                applyFilter(newValue);
+              }
+            },
+            dropdownColor: Color(0xFF3949AB),
+            style: TextStyle(color: Colors.white),
+            icon: Icon(Icons.arrow_drop_down, color: Colors.white),
           ),
         ],
       ),
-      bottomNavigationBar: BottomAppBar(
-        child: IconButton(
-          icon: Icon(Icons.refresh),
-          onPressed: () async {
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: Text('Confirmation'),
-                  content: Text('Êtes-vous sûr de vouloir réinitialiser la liste des commandes ?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: Text('Annuler'),
-                    ),
-                    TextButton(
-                      onPressed: () async {
-                        setState(() {
-                          filteredCommands.clear();
-                          widget.commands.clear();
-                        });
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.remove('commands'); // Clear stored commands
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Liste des commandes réinitialisée !')));
-                        Navigator.of(context).pop(); // Close the dialog
-                      },
-                      child: Text('Réinitialiser'),
-                    ),
-                  ],
-                );
-              },
+    );
+  }
+
+  Widget _buildCommandsList() {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return ListView.builder(
+          itemCount: filteredCommands.length,
+          itemBuilder: (context, index) {
+            final command = filteredCommands[index];
+            return FadeTransition(
+              opacity: _animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: Offset(0, 0.1),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: _animationController,
+                  curve: Interval(
+                    index / filteredCommands.length,
+                    (index + 1) / filteredCommands.length,
+                    curve: Curves.easeOut,
+                  ),
+                )),
+                child: _buildCommandCard(command),
+              ),
             );
           },
+        );
+      },
+    );
+  }
+
+  Widget _buildCommandCard(Command command) {
+    return Card(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: InkWell(
+        onTap: () => _onCommandTap(command),
+        onLongPress: () => _onCommandLongPress(command),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: selectedCommands.contains(command)
+                  ? [Colors.blue.withOpacity(0.7), Colors.blue]
+                  : [Colors.white, Colors.white70],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                spreadRadius: 1,
+                blurRadius: 5,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          child: ListTile(
+            contentPadding: EdgeInsets.all(16),
+            title: Text(
+              'ID: ${command.id} - ${command.action}',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text(command.time),
+            trailing: IconButton(
+              icon: Icon(Icons.delete, color: Colors.red),
+              onPressed: () => deleteCommand(command),
+            ),
+          ),
         ),
       ),
     );
   }
+
+  void _onSearchChanged(String value) {
+    String query = value.toLowerCase();
+    setState(() {
+      filteredCommands = widget.commands.where((command) {
+        return command.id.toString().contains(query) ||
+            command.action.toLowerCase().contains(query);
+      }).toList();
+      applyFilter(selectedFilter);
+    });
+  }
+
+  void _onCommandTap(Command command) {
+    if (!isSelecting) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CommandDetailPage(command: command),
+        ),
+      );
+    } else {
+      toggleSelection(command);
+    }
+  }
+
+  void _onCommandLongPress(Command command) {
+    if (!isSelecting) {
+      startSelectionMode();
+    }
+    toggleSelection(command);
+  }
+
+  void _showResetConfirmation() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Confirmation'),
+          content: Text('Êtes-vous sûr de vouloir réinitialiser la liste des commandes ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: _resetCommands,
+              child: Text('Réinitialiser'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _resetCommands() async {
+    setState(() {
+      filteredCommands.clear();
+      widget.commands.clear();
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('commands');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Liste des commandes réinitialisée !')),
+    );
+    Navigator.of(context).pop();
+  }
 }
+

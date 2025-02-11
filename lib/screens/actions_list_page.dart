@@ -13,12 +13,14 @@ class ActionsListPage extends StatefulWidget {
   _ActionsListPageState createState() => _ActionsListPageState();
 }
 
-class _ActionsListPageState extends State<ActionsListPage> {
+class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProviderStateMixin {
   List<RobotAction> filteredActions = [];
   List<RobotAction> selectedActions = [];
   TextEditingController searchController = TextEditingController();
   String selectedFilter = 'ID croissant';
   bool isSelecting = false;
+  late AnimationController _animationController;
+  late Animation<double> _animation;
 
   final List<String> filterOptions = [
     'ID croissant',
@@ -32,27 +34,42 @@ class _ActionsListPageState extends State<ActionsListPage> {
   @override
   void initState() {
     super.initState();
+    filteredActions = widget.actions;
     loadActions();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    );
+    _animationController.forward();
   }
 
-  Future<void> saveActions() async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> actionsJson = filteredActions.map((action) => jsonEncode(action.toJson())).toList();
-    await prefs.setStringList('actions', actionsJson);
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   Future<void> loadActions() async {
     final prefs = await SharedPreferences.getInstance();
-    List<String>? actionsJson = prefs.getStringList('actions');
-
-    if (actionsJson != null) {
+    final jsonString = prefs.getString('actions');
+    if (jsonString != null) {
+      final jsonList = json.decode(jsonString) as List<dynamic>;
       setState(() {
-        filteredActions = actionsJson.map((json) => RobotAction.fromJson(jsonDecode(json))).toList();
-        widget.actions.clear();
-        widget.actions.addAll(filteredActions);
+        widget.actions.clear(); // Clear existing actions
+        widget.actions.addAll(jsonList.map((e) => RobotAction.fromJson(e)).toList());
+        filteredActions = List.from(widget.actions); // Create a new list
       });
-      applyFilter(selectedFilter); // Appliquer le filtre après le chargement
     }
+  }
+
+  Future<void> saveActions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = json.encode(widget.actions.map((e) => e.toJson()).toList());
+    await prefs.setString('actions', jsonString);
   }
 
   void applyFilter(String filter) {
@@ -78,71 +95,25 @@ class _ActionsListPageState extends State<ActionsListPage> {
           filteredActions.sort((a, b) => a.time.compareTo(b.time));
           break;
       }
-      saveActions(); // Sauvegarder après le tri
     });
   }
 
   void deleteAction(RobotAction action) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Confirmation'),
-          content: Text('Êtes-vous sûr de vouloir supprimer cette action ?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text('Annuler'),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  filteredActions.remove(action);
-                  widget.actions.remove(action);
-                });
-                saveActions(); // Sauvegarder après suppression
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Action supprimée : ${action.description}')),
-                );
-                Navigator.of(context).pop();
-              },
-              child: Text('Supprimer'),
-            ),
-          ],
-        );
-      },
-    );
+    setState(() {
+      widget.actions.remove(action);
+      filteredActions.remove(action);
+      saveActions();
+    });
   }
 
   void deleteSelectedActions() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Confirmation'),
-          content: Text('Êtes-vous sûr de vouloir supprimer ces actions ?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text('Annuler'),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  filteredActions.removeWhere((action) => selectedActions.contains(action));
-                  widget.actions.removeWhere((action) => selectedActions.contains(action));
-                  selectedActions.clear();
-                });
-                saveActions(); // Sauvegarder après suppression multiple
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Actions supprimées !')));
-                Navigator.of(context).pop();
-              },
-              child: Text('Supprimer'),
-            ),
-          ],
-        );
-      },
-    );
+    setState(() {
+      widget.actions.removeWhere((action) => selectedActions.contains(action));
+      filteredActions.removeWhere((action) => selectedActions.contains(action));
+      selectedActions.clear();
+      isSelecting = false;
+      saveActions();
+    });
   }
 
   void toggleSelection(RobotAction action) {
@@ -158,7 +129,6 @@ class _ActionsListPageState extends State<ActionsListPage> {
   void startSelectionMode() {
     setState(() {
       isSelecting = true;
-      selectedActions.clear();
     });
   }
 
@@ -169,135 +139,262 @@ class _ActionsListPageState extends State<ActionsListPage> {
     });
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Liste des Actions'),
-        actions: [
-          if (isSelecting)
-            IconButton(
-              icon: Icon(Icons.delete),
-              onPressed: () {
-                if (selectedActions.isNotEmpty) {
-                  deleteSelectedActions();
-                }
-              },
-            ),
-          if (isSelecting)
-            IconButton(
-              icon: Icon(Icons.check),
-              onPressed: endSelectionMode,
-            ),
-        ],
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildAppBar(),
+              _buildSearchAndFilter(),
+              Expanded(child: _buildActionsList()),
+            ],
+          ),
+        ),
       ),
-      body: Column(
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showResetConfirmation,
+        child: Icon(Icons.refresh),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  Widget _buildAppBar() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          Text(
+            'Liste des Actions',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              shadows: [
+                Shadow(
+                  blurRadius: 10.0,
+                  color: Colors.black.withOpacity(0.3),
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+          ),
           Row(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: searchController,
-                  decoration: InputDecoration(labelText: 'Recherche...'),
-                  onChanged: (value) {
-                    String query = value.toLowerCase();
-                    setState(() {
-                      filteredActions = widget.actions.where((action) {
-                        return action.id.toString().contains(query) ||
-                            action.description.toLowerCase().contains(query);
-                      }).toList();
-                      applyFilter(selectedFilter); // Réappliquer le filtre après recherche
-                    });
+              if (isSelecting)
+                IconButton(
+                  icon: Icon(Icons.delete, color: Colors.white),
+                  onPressed: () {
+                    if (selectedActions.isNotEmpty) {
+                      deleteSelectedActions();
+                    }
                   },
                 ),
-              ),
-              DropdownButton<String>(
-                value: selectedFilter,
-                items: filterOptions.map((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value),
-                  );
-                }).toList(),
-                onChanged: (String? newValue) {
-                  if (newValue != null) {
-                    applyFilter(newValue);
-                  }
-                },
+              IconButton(
+                icon: Icon(isSelecting ? Icons.close : Icons.select_all, color: Colors.white),
+                onPressed: isSelecting ? endSelectionMode : startSelectionMode,
               ),
             ],
           ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: filteredActions.length,
-              itemBuilder: (context, index) {
-                return GestureDetector(
-                  onLongPress: () {
-                    startSelectionMode();
-                    toggleSelection(filteredActions[index]);
-                  },
-                  child: ListTile(
-                    title: Text('ID: ${filteredActions[index].id} - ${filteredActions[index].description}'),
-                    subtitle: Text(filteredActions[index].time),
-                    tileColor: selectedActions.contains(filteredActions[index]) ? Colors.blue[100] : null,
-                    trailing: IconButton(
-                      icon: Icon(Icons.delete),
-                      onPressed: () => deleteAction(filteredActions[index]),
-                    ),
-                    onTap: () {
-                      if (!isSelecting) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ActionDetailPage(action: filteredActions[index]),
-                          ),
-                        );
-                      } else {
-                        toggleSelection(filteredActions[index]);
-                      }
-                    },
-                  ),
-                );
-              },
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchAndFilter() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        children: [
+          TextField(
+            controller: searchController,
+            decoration: InputDecoration(
+              labelText: 'Recherche...',
+              labelStyle: TextStyle(color: Colors.white70),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white70),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
+              prefixIcon: Icon(Icons.search, color: Colors.white70),
             ),
+            style: TextStyle(color: Colors.white),
+            onChanged: _onSearchChanged,
+          ),
+          SizedBox(height: 8),
+          DropdownButton<String>(
+            value: selectedFilter,
+            items: filterOptions.map((String value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text(value, style: TextStyle(color: Colors.white)),
+              );
+            }).toList(),
+            onChanged: (String? newValue) {
+              if (newValue != null) {
+                applyFilter(newValue);
+              }
+            },
+            dropdownColor: Color(0xFF3949AB),
+            style: TextStyle(color: Colors.white),
+            icon: Icon(Icons.arrow_drop_down, color: Colors.white),
           ),
         ],
       ),
-      bottomNavigationBar: BottomAppBar(
-        child: IconButton(
-          icon: Icon(Icons.refresh),
-          onPressed: () async {
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: Text('Confirmation'),
-                  content: Text('Êtes-vous sûr de vouloir réinitialiser la liste des actions ?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: Text('Annuler'),
-                    ),
-                    TextButton(
-                      onPressed: () async {
-                        setState(() {
-                          filteredActions.clear();
-                          widget.actions.clear();
-                        });
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.remove('actions'); // Réinitialisation
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Liste des actions réinitialisée !')));
-                        Navigator.of(context).pop();
-                      },
-                      child: Text('Réinitialiser'),
-                    ),
-                  ],
-                );
-              },
+    );
+  }
+
+  Widget _buildActionsList() {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return ListView.builder(
+          itemCount: filteredActions.length,
+          itemBuilder: (context, index) {
+            final action = filteredActions[index];
+            return FadeTransition(
+              opacity: _animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: Offset(0, 0.1),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: _animationController,
+                  curve: Interval(
+                    index / filteredActions.length,
+                    (index + 1) / filteredActions.length,
+                    curve: Curves.easeOut,
+                  ),
+                )),
+                child: _buildActionCard(action),
+              ),
             );
           },
+        );
+      },
+    );
+  }
+
+  Widget _buildActionCard(RobotAction action) {
+    return Card(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: InkWell(
+        onTap: () => _onActionTap(action),
+        onLongPress: () => _onActionLongPress(action),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: selectedActions.contains(action)
+                  ? [Colors.blue.withOpacity(0.7), Colors.blue]
+                  : [Colors.white, Colors.white70],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                spreadRadius: 1,
+                blurRadius: 5,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          child: ListTile(
+            contentPadding: EdgeInsets.all(16),
+            title: Text(
+              'ID: ${action.id} - ${action.description}',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text(action.time),
+            trailing: IconButton(
+              icon: Icon(Icons.delete, color: Colors.red),
+              onPressed: () => deleteAction(action),
+            ),
+          ),
         ),
       ),
     );
   }
+
+  void _onSearchChanged(String value) {
+    String query = value.toLowerCase();
+    setState(() {
+      filteredActions = widget.actions.where((action) {
+        return action.id.toString().contains(query) ||
+            action.description.toLowerCase().contains(query);
+      }).toList();
+      applyFilter(selectedFilter);
+    });
+  }
+
+  void _onActionTap(RobotAction action) {
+    if (!isSelecting) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ActionDetailPage(action: action),
+        ),
+      );
+    } else {
+      toggleSelection(action);
+    }
+  }
+
+  void _onActionLongPress(RobotAction action) {
+    if (!isSelecting) {
+      startSelectionMode();
+    }
+    toggleSelection(action);
+  }
+
+  void _showResetConfirmation() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Confirmation'),
+          content: Text('Êtes-vous sûr de vouloir réinitialiser la liste des actions ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: _resetActions,
+              child: Text('Réinitialiser'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _resetActions() async {
+    setState(() {
+      filteredActions.clear();
+      widget.actions.clear();
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('actions');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Liste des actions réinitialisée !')),
+    );
+    Navigator.of(context).pop();
+  }
 }
+
