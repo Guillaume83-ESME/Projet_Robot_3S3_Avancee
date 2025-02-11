@@ -118,6 +118,14 @@ class _ActionDetailPageState extends State<ActionDetailPage> {
                       topLeft: Radius.circular(30),
                       topRight: Radius.circular(30),
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        spreadRadius: 0,
+                        blurRadius: 10,
+                        offset: Offset(0, -5),
+                      ),
+                    ],
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(20.0),
@@ -145,13 +153,15 @@ class _ActionDetailPageState extends State<ActionDetailPage> {
                         ],
                         ElevatedButton(
                           onPressed: showAddNoteDialog,
-                          child: Text('Ajouter une note'),
+                          child: Text('Ajouter une note', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Color(0xFF3949AB),
+                            foregroundColor: Colors.white,
                             padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(20),
                             ),
+                            elevation: 3,
                           ),
                         ),
                       ],

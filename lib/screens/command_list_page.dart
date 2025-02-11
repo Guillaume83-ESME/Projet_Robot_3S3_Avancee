@@ -14,7 +14,7 @@ class CommandListPage extends StatefulWidget {
 }
 
 class _CommandListPageState extends State<CommandListPage> with SingleTickerProviderStateMixin {
-  List<Command> filteredCommands = [];
+  late List<Command> filteredCommands;
   List<Command> selectedCommands = [];
   TextEditingController searchController = TextEditingController();
   String selectedFilter = 'ID croissant';
@@ -34,7 +34,7 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
   @override
   void initState() {
     super.initState();
-    filteredCommands = widget.commands;
+    filteredCommands = List.from(widget.commands);
     loadCommands();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 1000),
@@ -59,9 +59,10 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
     if (jsonString != null) {
       final jsonList = json.decode(jsonString) as List<dynamic>;
       setState(() {
-        widget.commands.clear(); // Clear existing commands
+        widget.commands.clear();
         widget.commands.addAll(jsonList.map((e) => Command.fromJson(e)).toList());
-        filteredCommands = List.from(widget.commands); // Create a new list
+        filteredCommands = List.from(widget.commands);
+        applyFilter(selectedFilter);
       });
     }
   }
@@ -75,26 +76,24 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
   void applyFilter(String filter) {
     setState(() {
       selectedFilter = filter;
-      switch (filter) {
-        case 'ID croissant':
-          filteredCommands.sort((a, b) => a.id.compareTo(b.id));
-          break;
-        case 'ID décroissant':
-          filteredCommands.sort((a, b) => b.id.compareTo(a.id));
-          break;
-        case 'Nom A-Z':
-          filteredCommands.sort((a, b) => a.action.compareTo(b.action));
-          break;
-        case 'Nom Z-A':
-          filteredCommands.sort((a, b) => b.action.compareTo(a.action));
-          break;
-        case 'Date récente':
-          filteredCommands.sort((a, b) => b.time.compareTo(a.time));
-          break;
-        case 'Date ancienne':
-          filteredCommands.sort((a, b) => a.time.compareTo(b.time));
-          break;
-      }
+      filteredCommands.sort((a, b) {
+        switch (filter) {
+          case 'ID croissant':
+            return a.id.compareTo(b.id);
+          case 'ID décroissant':
+            return b.id.compareTo(a.id);
+          case 'Nom A-Z':
+            return a.action.compareTo(b.action);
+          case 'Nom Z-A':
+            return b.action.compareTo(a.action);
+          case 'Date récente':
+            return b.time.compareTo(a.time);
+          case 'Date ancienne':
+            return a.time.compareTo(b.time);
+          default:
+            return 0;
+        }
+      });
     });
   }
 
@@ -102,7 +101,6 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
     setState(() {
       widget.commands.remove(command);
       filteredCommands.remove(command);
-      selectedCommands.remove(command);
       saveCommands();
     });
   }
@@ -112,6 +110,7 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
       widget.commands.removeWhere((command) => selectedCommands.contains(command));
       filteredCommands.removeWhere((command) => selectedCommands.contains(command));
       selectedCommands.clear();
+      isSelecting = false;
       saveCommands();
     });
   }
@@ -174,22 +173,27 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            'Liste des Commandes',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-              shadows: [
-                Shadow(
-                  blurRadius: 10.0,
-                  color: Colors.black.withOpacity(0.3),
-                  offset: Offset(0, 2),
-                ),
-              ],
+          Expanded(
+            child: Text(
+              'Liste des Commandes',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    blurRadius: 10.0,
+                    color: Colors.black.withOpacity(0.3),
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
             ),
           ),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
             children: [
               if (isSelecting)
                 IconButton(
