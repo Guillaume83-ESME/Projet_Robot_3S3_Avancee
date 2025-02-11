@@ -148,11 +148,6 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
                               icon: Icon(Icons.link_off),
                               onPressed: () => _unpairDevice(device),
                             ),
-                          if (!isSaved)
-                            IconButton(
-                              icon: Icon(Icons.link),
-                              onPressed: () => _pairDevice(device),
-                            ),
                           IconButton(
                             icon: Icon(isConnected ? Icons.bluetooth_connected : Icons.bluetooth),
                             onPressed: () => _connectToDevice(device),
@@ -192,24 +187,25 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
   }
 
   Future<void> _connectToDevice(BluetoothDevice device) async {
-    try {
-      if (await device.isConnected) {
+    bool isConnected = await device.isConnected;
+    if (isConnected) {
+      bool? confirmDisconnect = await showDisconnectDialog(context, device);
+      if (confirmDisconnect == true) {
         await device.disconnect();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Déconnecté de ${device.name ?? 'Appareil inconnu'}')),
         );
-      } else {
-        await device.connect();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Connecté à ${device.name ?? 'Appareil inconnu'}')),
-        );
+        await _getConnectedDevices();
+        setState(() {});
       }
-      await _getConnectedDevices();
-      setState(() {});
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de connexion : $e')),
-      );
+    } else {
+      bool? confirmPair = await showPairDialog(context, device);
+      if (confirmPair == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Veuillez appairer ${device.name ?? 'Appareil inconnu'} dans les paramètres Bluetooth.')),
+        );
+        await AppSettings.openAppSettings(type: AppSettingsType.bluetooth);
+      }
     }
   }
 
@@ -258,14 +254,6 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
       );
     }
   }
-
-  Future<void> _pairDevice(BluetoothDevice device) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Veuillez appairer ${device.name ?? 'Appareil inconnu'} dans les paramètres Bluetooth.')),
-    );
-    await AppSettings.openAppSettings(type: AppSettingsType.bluetooth);
-  }
-
 
   @override
   Widget build(BuildContext context) {
