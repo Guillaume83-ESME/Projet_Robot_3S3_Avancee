@@ -18,29 +18,26 @@ class _CommandDetailPageState extends State<CommandDetailPage> {
   @override
   void initState() {
     super.initState();
-    noteController.text = widget.command.note ?? ''; // Load existing note
+    noteController.text = widget.command.note ?? '';
   }
 
   Future<void> saveNote() async {
     setState(() {
-      widget.command.note = noteController.text; // Save note in the model
+      widget.command.note = noteController.text;
     });
 
-    // Save updated command list to SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     List<String> commandsJson = await prefs.getStringList('commands') ?? [];
     List<Command> commands = commandsJson.map((json) => Command.fromJson(jsonDecode(json))).toList();
 
-    // Update the specific command in the list
     int index = commands.indexWhere((cmd) => cmd.id == widget.command.id);
     if (index != -1) {
-      commands[index] = widget.command; // Update the command with the new note
+      commands[index] = widget.command;
     }
 
-    // Save back to SharedPreferences
     await prefs.setStringList('commands', commands.map((cmd) => jsonEncode(cmd.toJson())).toList());
 
-    Navigator.of(context).pop(); // Close the dialog
+    Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Note enregistrée: ${widget.command.note}')),
     );
@@ -59,7 +56,7 @@ class _CommandDetailPageState extends State<CommandDetailPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(), // Close dialog without saving
+              onPressed: () => Navigator.of(context).pop(),
               child: Text("Annuler"),
             ),
             TextButton(
@@ -75,34 +72,91 @@ class _CommandDetailPageState extends State<CommandDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Détails de la Commande'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('ID : ${widget.command.id}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            SizedBox(height: 10),
-            Text('Action : ${widget.command.action}', style: TextStyle(fontSize: 18)),
-            SizedBox(height: 10),
-            Text('Heure : ${widget.command.time}', style: TextStyle(fontSize: 18)),
-            SizedBox(height: 20),
-            if (widget.command.note != null && widget.command.note!.isNotEmpty) ...[
-              Text('Note:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              SizedBox(height: 5),
-              Text(widget.command.note!, style: TextStyle(fontSize: 16)),
-              SizedBox(height: 20),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                    Text(
+                      'Détails de la Commande',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(30),
+                      topRight: Radius.circular(30),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ID : ${widget.command.id}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        SizedBox(height: 10),
+                        Text('Action : ${widget.command.action}', style: TextStyle(fontSize: 18)),
+                        SizedBox(height: 10),
+                        Text('Heure : ${widget.command.time}', style: TextStyle(fontSize: 18)),
+                        SizedBox(height: 20),
+                        if (widget.command.note != null && widget.command.note!.isNotEmpty) ...[
+                          Text('Note:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          SizedBox(height: 5),
+                          Container(
+                            padding: EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(widget.command.note!, style: TextStyle(fontSize: 16)),
+                          ),
+                          SizedBox(height: 20),
+                        ],
+                        ElevatedButton(
+                          onPressed: showAddNoteDialog,
+                          child: Text('Ajouter une note'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Color(0xFF3949AB),
+                            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ],
-            ElevatedButton(
-              onPressed: showAddNoteDialog,
-              child:
-              const Text('Ajouter une note'),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
+
