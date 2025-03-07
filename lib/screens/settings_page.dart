@@ -24,9 +24,9 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _loadBluetoothPreference();
+    //_loadBluetoothPreference();
   }
-
+/*
   Future<void> _loadBluetoothPreference() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? savedVersion = prefs.getString('bluetooth_version');
@@ -45,7 +45,7 @@ class _SettingsPageState extends State<SettingsPage> {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString('bluetooth_version', version);
   }
-
+*/
   @override
   Widget build(BuildContext context) {
     // Obtenez l'instance du modèle de thème ici
@@ -71,7 +71,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 themeModel.toggleTheme();
               },
             ),
-            SizedBox(height: 20),
+           /* SizedBox(height: 20),
             DropdownButton<String>(
               value: selectedBluetoothVersion,
               hint: Text('Choisissez la version Bluetooth'),
@@ -88,7 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   _saveBluetoothPreference(newValue!);
                 });
               },
-            ),
+            ),*/
           ],
         ),
       ),

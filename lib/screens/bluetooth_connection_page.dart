@@ -5,6 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:app_settings/app_settings.dart';
+import 'bluetooth_manager.dart';
+import 'package:provider/provider.dart';
+import 'bluetooth_state_manager.dart';
+import 'bluetooth_command_page.dart';
 
 class BluetoothConnectionPage extends StatefulWidget {
   @override
@@ -45,11 +49,19 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
   }
 
   Future<void> _initializeApp() async {
-    bool firstLaunch = await isFirstLaunch();
-    if (firstLaunch) {
-      await showPermissionDialog(context);
-    } else {
-      await _checkPermissionsAndProceed();
+    try {
+      final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
+      await bluetoothManager.initializeBluetooth();
+      bool firstLaunch = await isFirstLaunch();
+      if (firstLaunch) {
+        await showPermissionDialog(context);
+      } else {
+        await _checkPermissionsAndProceed();
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur d\'initialisation: $e')),
+      );
     }
   }
 
@@ -75,22 +87,19 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
   }
 
   void startContinuousScan() async {
-    if (await FlutterBluePlus.isSupported == false) {
-      return;
-    }
-
-    if (await FlutterBluePlus.isOn) {
+    final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
+    try {
       setState(() => isScanning = true);
-      FlutterBluePlus.startScan();
-      FlutterBluePlus.scanResults.listen((results) {
-        setState(() => devicesList = results);
-      }, onError: (error) {
-        print("Erreur de scan : $error");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors du scan : $error')),
-        );
-        setState(() => isScanning = false);
+      await bluetoothManager.scanDevices();
+      setState(() {
+        devicesList = bluetoothManager.scanResults;
+        isScanning = false;
       });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors du scan : $e')),
+      );
+      setState(() => isScanning = false);
     }
   }
 
@@ -99,169 +108,47 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
     setState(() => isScanning = false);
   }
 
-  List<BluetoothDevice> _getFilteredDevices() {
-    return filterDevices(
-      savedDevices: savedDevices,
-      connectedDevices: connectedDevices,
-      searchQuery: searchQuery,
-      hideUnnamedDevices: hideUnnamedDevices,
-    );
-  }
-
-  void _showSavedAndConnectedDevices() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            _loadSavedDevices();
-            _getConnectedDevices().then((_) {
-              setState(() {});
-            });
-
-            List<BluetoothDevice> filteredDevices = _getFilteredDevices();
-            if (sortAscending) {
-              filteredDevices.sort((a, b) => a.name.compareTo(b.name));
-            } else {
-              filteredDevices.sort((a, b) => b.name.compareTo(a.name));
-            }
-
-            return AlertDialog(
-              title: Text('Appareils enregistrés et connectés'),
-              content: Container(
-                width: double.maxFinite,
-                child: ListView.builder(
-                  itemCount: filteredDevices.length,
-                  itemBuilder: (context, index) {
-                    BluetoothDevice device = filteredDevices[index];
-                    bool isConnected = connectedDevices.contains(device);
-                    bool isSaved = savedDevices.contains(device);
-
-                    return ListTile(
-                      title: Text(device.name.isNotEmpty ? device.name : 'Appareil inconnu'),
-                      subtitle: Text(isConnected ? 'Connecté' : (isSaved ? 'Enregistré' : '')),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (isSaved)
-                            IconButton(
-                              icon: Icon(Icons.link_off),
-                              onPressed: () => _unpairDevice(device),
-                            ),
-                          IconButton(
-                            icon: Icon(isConnected ? Icons.bluetooth_connected : Icons.bluetooth),
-                            onPressed: () => _connectToDevice(device),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(
-                  child: Text('Fermer'),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _removeSelectedDevices() async {
-    for (var device in selectedDevices) {
-      if (await device.isConnected) {
-        await device.disconnect();
-      }
-      await device.removeBond();
-    }
-    await _loadSavedDevices();
-    await _getConnectedDevices();
-    setState(() => selectedDevices.clear());
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Appareils sélectionnés supprimés et déconnectés avec succès')),
-    );
-  }
-
   Future<void> _connectToDevice(BluetoothDevice device) async {
-    bool isConnected = await device.isConnected;
-    if (isConnected) {
-      bool? confirmDisconnect = await showDisconnectDialog(context, device);
-      if (confirmDisconnect == true) {
-        await device.disconnect();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Déconnecté de ${device.name ?? 'Appareil inconnu'}')),
-        );
-        await _getConnectedDevices();
-        setState(() {});
-      }
-    } else {
-      bool? confirmPair = await showPairDialog(context, device);
-      if (confirmPair == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Veuillez appairer ${device.name ?? 'Appareil inconnu'} dans les paramètres Bluetooth.')),
-        );
-        await AppSettings.openAppSettings(type: AppSettingsType.bluetooth);
-      }
-    }
-  }
-
-  void _toggleDeviceSelection(BluetoothDevice device) {
-    setState(() {
-      if (selectedDevices.contains(device)) {
-        selectedDevices.remove(device);
-      } else {
-        selectedDevices.add(device);
-      }
-    });
-  }
-
-  Future<void> _showConnectionDialog(BluetoothDevice device) async {
-    bool isConnected = await device.isConnected;
-    if (isConnected) {
-      await _disconnectFromDevice(device);
-    } else {
-      await _connectToDevice(device);
-    }
-  }
-
-  Future<void> _disconnectFromDevice(BluetoothDevice device) async {
-    bool? confirmDisconnect = await showDisconnectDialog(context, device);
-    if (confirmDisconnect == true) {
-      await device.disconnect();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Déconnecté de ${device.name ?? 'Appareil inconnu'}')),
-      );
-    }
-    await _getConnectedDevices();
-    setState(() {});
-  }
-
-  Future<void> _unpairDevice(BluetoothDevice device) async {
     try {
-      await device.removeBond();
+      final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
+      await bluetoothManager.connectToDevice(device);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${device.name ?? 'Appareil inconnu'} dissocié avec succès')),
+        SnackBar(content: Text('Connecté à ${device.name}')),
       );
-      await _loadSavedDevices();
+      await _getConnectedDevices();
       setState(() {});
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la dissociation : $e')),
+        SnackBar(content: Text('Erreur de connexion: $e')),
+      );
+    }
+  }
+
+  Future<void> _disconnectFromDevice() async {
+    try {
+      final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
+      await bluetoothManager.disconnectDevice();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Déconnecté')),
+      );
+      await _getConnectedDevices();
+      setState(() {});
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de la déconnexion: $e')),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final bluetoothManager = Provider.of<BluetoothStateManager>(context);
+
     if (!_permissionsChecked) {
       return _buildPermissionCheckingScreen();
     }
 
-    List<ScanResult> filteredDevices = _getFilteredAndSortedDevices();
+    List<ScanResult> filteredDevices = _getFilteredAndSortedDevices(bluetoothManager.scanResults);
 
     return Scaffold(
       body: Container(
@@ -278,6 +165,7 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
           child: Column(
             children: [
               _buildAppBar(),
+              _buildConnectionStatus(bluetoothManager),
               _buildSearchAndFilter(),
               Expanded(child: _buildDevicesList(filteredDevices)),
             ],
@@ -286,6 +174,278 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
       ),
       floatingActionButton: _buildScanButton(),
     );
+  }
+
+  Widget _buildAppBar() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'Connexion HM10',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              shadows: [
+                Shadow(
+                  blurRadius: 10.0,
+                  color: Colors.black.withOpacity(0.3),
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(Icons.text_fields, color: Colors.white),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => BluetoothCommandPage()),
+                  );
+                },
+                tooltip: 'Commandes Bluetooth',
+              ),
+              IconButton(
+                icon: Icon(Icons.help_outline, color: Colors.white),
+                onPressed: () => _showHelpDialog(),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConnectionStatus(BluetoothStateManager bluetoothManager) {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bluetoothManager.isConnected ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              bluetoothManager.isConnected
+                  ? 'Connecté à ${bluetoothManager.connectedDevice?.name ?? "Appareil inconnu"}'
+                  : 'Non connecté',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          if (bluetoothManager.isConnected)
+            ElevatedButton(
+              onPressed: _disconnectFromDevice,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: Text('Déconnecter'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchAndFilter() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        children: [
+          TextField(
+            onChanged: (value) => setState(() => searchQuery = value),
+            decoration: InputDecoration(
+              labelText: 'Recherche...',
+              labelStyle: TextStyle(color: Colors.white70),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white70),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
+              prefixIcon: Icon(Icons.search, color: Colors.white70),
+            ),
+            style: TextStyle(color: Colors.white),
+          ),
+          SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildFilterButton(
+                text: sortAscending ? 'Tri A-Z' : 'Tri Z-A',
+                onPressed: () => setState(() {
+                  sortAscending = !sortAscending;
+                  sortByProximity = false;
+                }),
+              ),
+              _buildFilterButton(
+                text: sortByProximity ? 'Tri par proximité' : 'Tri par nom',
+                onPressed: () => setState(() => sortByProximity = !sortByProximity),
+              ),
+              _buildFilterButton(
+                text: hideUnnamedDevices ? 'Afficher tous' : 'Masquer sans nom',
+                onPressed: () => setState(() => hideUnnamedDevices = !hideUnnamedDevices),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterButton({required String text, required VoidCallback onPressed}) {
+    return TextButton(
+      onPressed: onPressed,
+      child: Text(
+        text,
+        style: TextStyle(color: Colors.white70),
+      ),
+      style: TextButton.styleFrom(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      ),
+    );
+  }
+
+  Widget _buildDevicesList(List<ScanResult> devices) {
+    if (devices.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.bluetooth_disabled,
+              size: 64,
+              color: Colors.white.withOpacity(0.5),
+            ),
+            SizedBox(height: 16),
+            Text(
+              isScanning ? 'Recherche en cours...' : 'Aucun appareil trouvé',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Appuyez sur le bouton de scan pour rechercher des appareils',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.7),
+                fontSize: 14,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: devices.length,
+      itemBuilder: (context, index) {
+        final device = devices[index].device;
+        final rssi = devices[index].rssi;
+
+        bool isPotentialHM10 = device.name.toLowerCase().contains('hm-10') ||
+            device.name.toLowerCase().contains('hm10') ||
+            device.name.toLowerCase().contains('ble') ||
+            device.name.toLowerCase().contains('jdy');
+
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: isPotentialHM10
+              ? Colors.green.withOpacity(0.2)
+              : Colors.white.withOpacity(0.1),
+          child: ListTile(
+            leading: Icon(
+              Icons.bluetooth,
+              color: isPotentialHM10 ? Colors.green : Colors.blue,
+            ),
+            title: Text(
+              device.name.isNotEmpty ? device.name : 'Appareil inconnu',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  device.remoteId.toString(),
+                  style: TextStyle(color: Colors.white70),
+                ),
+                if (isPotentialHM10)
+                  Text(
+                    'Potentiellement un HM10',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+              ],
+            ),
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '$rssi dBm',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                Icon(
+                  rssi > -60 ? Icons.signal_cellular_4_bar :
+                  rssi > -70 ? Icons.network_cell :
+                  rssi > -80 ? Icons.signal_cellular_alt :
+                  Icons.signal_cellular_0_bar,
+                  size: 16,
+                  color: rssi > -70 ? Colors.green :
+                  rssi > -80 ? Colors.orange : Colors.red,
+                ),
+              ],
+            ),
+            onTap: () => _connectToDevice(device),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildScanButton() {
+    return FloatingActionButton.extended(
+      onPressed: isScanning ? stopScan : startContinuousScan,
+      icon: Icon(isScanning ? Icons.stop : Icons.bluetooth_searching),
+      label: Text(isScanning ? 'Arrêter' : 'Scanner'),
+      tooltip: isScanning ? 'Arrêter le scan' : 'Démarrer le scan',
+      backgroundColor: isScanning ? Colors.red : Colors.green,
+    );
+  }
+
+  List<ScanResult> _getFilteredAndSortedDevices(List<ScanResult> scanResults) {
+    List<ScanResult> filteredDevices = scanResults.where((result) {
+      bool matchesSearch = result.device.name.toLowerCase().contains(searchQuery.toLowerCase()) ||
+          result.device.remoteId.toString().toLowerCase().contains(searchQuery.toLowerCase());
+      bool isNamed = result.device.name.isNotEmpty && result.device.name != 'Appareil inconnu';
+      return matchesSearch && (isNamed || !hideUnnamedDevices);
+    }).toList();
+
+    if (sortByProximity) {
+      filteredDevices.sort((a, b) => b.rssi.compareTo(a.rssi));
+    } else if (sortAscending) {
+      filteredDevices.sort((a, b) => a.device.name.compareTo(b.device.name));
+    } else {
+      filteredDevices.sort((a, b) => b.device.name.compareTo(a.device.name));
+    }
+
+    return filteredDevices;
   }
 
   Widget _buildPermissionCheckingScreen() {
@@ -321,191 +481,6 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
         ),
       ),
     );
-  }
-
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            'Appareils Bluetooth',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-              shadows: [
-                Shadow(
-                  blurRadius: 10.0,
-                  color: Colors.black.withOpacity(0.3),
-                  offset: Offset(0, 2),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: Icon(Icons.devices, color: Colors.white),
-            onPressed: _showSavedAndConnectedDevices,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchAndFilter() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Column(
-        children: [
-          TextField(
-            onChanged: (value) => setState(() => searchQuery = value),
-            decoration: InputDecoration(
-              labelText: 'Recherche...',
-              labelStyle: TextStyle(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white70
-                    : Colors.indigo[200],
-              ),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white70
-                      : Colors.indigo[200]!,
-                ),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white
-                      : Colors.indigo,
-                ),
-              ),
-              prefixIcon: Icon(
-                Icons.search,
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white70
-                    : Colors.indigo[200],
-              ),
-            ),
-            style: TextStyle(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.white
-                  : Colors.black,
-            ),
-          ),
-          SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildFilterButton(
-                text: sortAscending ? 'Tri A-Z' : 'Tri Z-A',
-                onPressed: () => setState(() {
-                  sortAscending = !sortAscending;
-                  sortByProximity = false;
-                }),
-              ),
-              _buildFilterButton(
-                text: sortByProximity ? 'Tri par proximité' : 'Tri par nom',
-                onPressed: () => setState(() => sortByProximity = !sortByProximity),
-              ),
-              _buildFilterButton(
-                text: hideUnnamedDevices ? 'Afficher tous' : 'Masquer sans nom',
-                onPressed: () => setState(() => hideUnnamedDevices = !hideUnnamedDevices),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterButton({required String text, required VoidCallback onPressed}) {
-    return TextButton(
-      onPressed: onPressed,
-      child: Text(
-        text,
-        style: TextStyle(
-          color: Theme.of(context).brightness == Brightness.dark
-              ? Colors.white70
-              : Colors.indigo[200],
-        ),
-      ),
-      style: TextButton.styleFrom(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      ),
-    );
-  }
-
-  Widget _buildDevicesList(List<ScanResult> devices) {
-    return ListView.builder(
-      itemCount: devices.length,
-      itemBuilder: (context, index) {
-        final device = devices[index].device;
-        return Card(
-          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          color: Theme.of(context).brightness == Brightness.dark
-              ? Colors.grey[800]
-              : Colors.white.withOpacity(0.9),
-          child: ListTile(
-            title: Text(
-              device.name.isNotEmpty ? device.name : 'Appareil inconnu',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white
-                    : Colors.black87,
-              ),
-            ),
-            subtitle: Text(
-              device.remoteId.toString(),
-              style: TextStyle(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white70
-                    : Colors.black54,
-              ),
-            ),
-            trailing: Text(
-              '${devices[index].rssi} dBm',
-              style: TextStyle(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white70
-                    : Colors.black54,
-              ),
-            ),
-            onTap: () => _connectToDevice(device),
-            onLongPress: () => _toggleDeviceSelection(device),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildScanButton() {
-    return FloatingActionButton(
-      onPressed: isScanning ? stopScan : startContinuousScan,
-      child: Icon(isScanning ? Icons.stop : Icons.search),
-      tooltip: isScanning ? 'Arrêter le scan' : 'Démarrer le scan',
-      backgroundColor: isScanning ? Colors.red : Colors.green,
-    );
-  }
-
-  List<ScanResult> _getFilteredAndSortedDevices() {
-    List<ScanResult> filteredDevices = devicesList.where((result) {
-      bool matchesSearch = result.device.name.toLowerCase().contains(searchQuery.toLowerCase());
-      bool isNamed = result.device.name.isNotEmpty && result.device.name != 'Appareil inconnu';
-      return matchesSearch && (isNamed || !hideUnnamedDevices);
-    }).toList();
-
-    if (sortByProximity) {
-      filteredDevices.sort((a, b) => b.rssi.compareTo(a.rssi));
-    } else if (sortAscending) {
-      filteredDevices.sort((a, b) => a.device.name.compareTo(b.device.name));
-    } else {
-      filteredDevices.sort((a, b) => b.device.name.compareTo(a.device.name));
-    }
-
-    return filteredDevices;
   }
 
   Future<bool> isFirstLaunch() async {
@@ -583,82 +558,27 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> with 
     );
   }
 
-  List<BluetoothDevice> filterDevices({
-    required List<BluetoothDevice> savedDevices,
-    required List<BluetoothDevice> connectedDevices,
-    required String searchQuery,
-    required bool hideUnnamedDevices,
-  }) {
-    List<BluetoothDevice> allDevices = [...savedDevices, ...connectedDevices];
-    allDevices = allDevices.toSet().toList();
-    return allDevices.where((device) {
-      bool matchesSearch = device.name.toLowerCase().contains(searchQuery.toLowerCase());
-      bool isNamed = device.name.isNotEmpty && device.name != 'Appareil inconnu';
-      return matchesSearch && (isNamed || !hideUnnamedDevices || savedDevices.contains(device));
-    }).toList();
-  }
-
-  List<ScanResult> filterAndSortDevices({
-    required List<ScanResult> devicesList,
-    required String searchQuery,
-    required bool hideUnnamedDevices,
-    required bool sortByProximity,
-    required bool sortAscending,
-  }) {
-    List<ScanResult> filteredDevices = devicesList.where((result) {
-      bool matchesSearch = result.device.name.toLowerCase().contains(searchQuery.toLowerCase());
-      bool isNamed = result.device.name.isNotEmpty && result.device.name != 'Appareil inconnu';
-      return matchesSearch && (isNamed || !hideUnnamedDevices);
-    }).toList();
-
-    if (sortByProximity) {
-      filteredDevices.sort((a, b) => b.rssi.compareTo(a.rssi));
-    } else if (sortAscending) {
-      filteredDevices.sort((a, b) => a.device.name.compareTo(b.device.name));
-    } else {
-      filteredDevices.sort((a, b) => b.device.name.compareTo(a.device.name));
-    }
-
-    return filteredDevices;
-  }
-
-  Future<bool?> showDisconnectDialog(BuildContext context, BluetoothDevice device) {
-    return showDialog<bool>(
+  Future<void> _showHelpDialog() async {
+    return showDialog<void>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('Déconnexion'),
-          content: Text('Voulez-vous vous déconnecter de ${device.name ?? 'Appareil inconnu'} ?'),
+          title: const Text('Aide'),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: const <Widget>[
+                Text('Cette page permet de se connecter à un appareil HM10 en Bluetooth.'),
+                Text('Activez le Bluetooth et la localisation pour que la recherche fonctionne.'),
+                Text('Les appareils HM10 sont mis en évidence en vert.'),
+              ],
+            ),
+          ),
           actions: <Widget>[
             TextButton(
-              child: Text('Annuler'),
-              onPressed: () => Navigator.of(context).pop(false),
-            ),
-            TextButton(
-              child: Text('Déconnecter'),
-              onPressed: () => Navigator.of(context).pop(true),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<bool?> showPairDialog(BuildContext context, BluetoothDevice device) {
-    return showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Appairer l\'appareil'),
-          content: Text('Voulez-vous appairer ${device.name ?? 'Appareil inconnu'} ?'),
-          actions: <Widget>[
-            TextButton(
-              child: Text('Annuler'),
-              onPressed: () => Navigator.of(context).pop(false),
-            ),
-            TextButton(
-              child: Text('Appairer'),
-              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Ok'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
             ),
           ],
         );

@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'bluetooth_state_manager.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import '../models/incident.dart';
-import '../models/command.dart';
 import '../models/robot_action.dart';
-import '../widgets/battery_icon.dart';
-import 'incident_list_page.dart';
-import 'command_list_page.dart';
+import '../models/command.dart';
+import '../models/incident.dart';
 import 'actions_list_page.dart';
+import 'command_list_page.dart';
+import 'incident_list_page.dart';
 import 'bluetooth_connection_page.dart';
 import 'settings_page.dart';
 import 'battery_status_page.dart';
+import '../widgets/battery_icon.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'bluetooth_command_page.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -32,6 +35,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     loadCommands();
     loadActions();
     loadIncidents();
+    _initBluetooth();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -41,6 +45,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       curve: Curves.easeInOut,
     );
     _animationController.forward();
+  }
+
+  Future<void> _initBluetooth() async {
+    final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
+    await bluetoothManager.initializeBluetooth();
   }
 
   Future<void> loadActions() async {
@@ -96,8 +105,25 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   void _createTestAction(String actionType) async {
     String time = DateFormat('HH:mm:ss').format(DateTime.now());
-    RobotAction newAction = RobotAction(id: actions.length + 1, description: actionType, time: time);
-    Command newCommand = Command(id: commands.length + 1, action: actionType, time: time);
+    String commandToSend;
+    String displayAction;
+
+    switch (actionType) {
+      case "STOP":
+        commandToSend = "stop robot";
+        displayAction = "Stop Robot";
+        break;
+      case "SEARCH":
+        commandToSend = "search object";
+        displayAction = "Search Object";
+        break;
+      default:
+        commandToSend = actionType.toLowerCase();
+        displayAction = actionType;
+    }
+
+    RobotAction newAction = RobotAction(id: actions.length + 1, description: displayAction, time: time);
+    Command newCommand = Command(id: commands.length + 1, action: displayAction, time: time);
 
     setState(() {
       actions.insert(0, newAction);
@@ -107,8 +133,26 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     await saveActions();
     await saveCommands();
 
+    final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
+    if (bluetoothManager.isConnected) {
+      try {
+        await bluetoothManager.sendBluetoothData(commandToSend);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Commande "$displayAction" envoyée via Bluetooth')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur d\'envoi Bluetooth: $e')),
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Non connecté en Bluetooth. Action enregistrée localement.')),
+      );
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$actionType créé !')),
+      SnackBar(content: Text('$displayAction créé !')),
     );
   }
 
@@ -136,7 +180,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Commandes réinitialisées !')));
   }
 
-  void _connectBluetooth() {
+  void _connectBluetooth() async {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -153,6 +197,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
+    final bluetoothManager = Provider.of<BluetoothStateManager>(context);
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -168,12 +214,37 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           child: Column(
             children: [
               _buildAppBar(),
+              if (bluetoothManager.isConnected) _buildBluetoothStatus(),
               Expanded(
                 child: _buildBody(),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBluetoothStatus() {
+    final bluetoothManager = Provider.of<BluetoothStateManager>(context);
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.bluetooth_connected, color: Colors.green),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Connecté à ${bluetoothManager.connectedDevice?.name ?? "Appareil"}',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -244,6 +315,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   Widget _buildBody() {
+    final bluetoothManager = Provider.of<BluetoothStateManager>(context);
+    bool isConnected = bluetoothManager.isConnected;
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -280,13 +354,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                   title: 'Stop Robot',
                   icon: Icons.stop_circle,
                   color: Colors.red,
-                  onTap: () => _createTestAction("Arrêt du robot"),
+                  onTap: isConnected ? () => _createTestAction("STOP") : null,
+                  isEnabled: isConnected,
                 ),
                 _buildActionCard(
                   title: 'Search Object',
                   icon: Icons.search,
                   color: Colors.orange,
-                  onTap: () => _createTestAction("Chercher un objet"),
+                  onTap: isConnected ? () => _createTestAction("SEARCH") : null,
+                  isEnabled: isConnected,
                 ),
                 _buildActionCard(
                   title: 'Action List',
@@ -314,18 +390,31 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                   title: 'Incident List',
                   icon: Icons.warning_amber,
                   color: Colors.amber,
-                  onTap: () {
+                  onTap: isConnected ? () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => IncidentListPage(incidents: incidents)),
                     );
-                  },
+                  } : null,
+                  isEnabled: isConnected,
                 ),
                 _buildActionCard(
-                  title: 'Bluetooth',
+                  title: isConnected ? 'Bluetooth Connected' : 'Connect Bluetooth',
                   icon: Icons.bluetooth,
                   color: Colors.indigo,
                   onTap: _connectBluetooth,
+                ),
+                _buildActionCard(
+                  title: 'Commande Bluetooth',
+                  icon: Icons.text_fields,
+                  color: Colors.purple,
+                  onTap: isConnected ? () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => BluetoothCommandPage()),
+                    );
+                  } : null,
+                  isEnabled: isConnected,
                 ),
               ],
             ),
@@ -335,27 +424,35 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
-  Widget _buildActionCard({required String title, required IconData icon, required Color color, required VoidCallback onTap}) {
+  Widget _buildActionCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required VoidCallback? onTap,
+    bool isEnabled = true,
+  }) {
     return ScaleTransition(
       scale: _animation,
       child: Card(
         elevation: 8,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: InkWell(
-          onTap: onTap,
+          onTap: isEnabled ? onTap : null,
           child: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: Theme.of(context).brightness == Brightness.dark
+                colors: isEnabled
+                    ? Theme.of(context).brightness == Brightness.dark
                     ? [color.withOpacity(0.3), color.withOpacity(0.5)]
-                    : [color.withOpacity(0.7), color],
+                    : [color.withOpacity(0.7), color]
+                    : [Colors.grey.withOpacity(0.3), Colors.grey.withOpacity(0.5)],
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: color.withOpacity(0.5),
+                  color: isEnabled ? color.withOpacity(0.5) : Colors.grey.withOpacity(0.5),
                   spreadRadius: 1,
                   blurRadius: 5,
                   offset: Offset(0, 3),
@@ -366,12 +463,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(icon, size: 48, color: Colors.white),
+                  Icon(icon, size: 48, color: isEnabled ? Colors.white : Colors.grey[400]),
                   SizedBox(height: 8),
                   Text(
                     title,
                     style: TextStyle(
-                      color: Colors.white,
+                      color: isEnabled ? Colors.white : Colors.grey[400],
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
                       shadows: [
