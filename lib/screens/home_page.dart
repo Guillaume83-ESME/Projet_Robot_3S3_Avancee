@@ -390,13 +390,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                   title: 'Incident List',
                   icon: Icons.warning_amber,
                   color: Colors.amber,
-                  onTap: isConnected ? () {
+                  onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => IncidentListPage(incidents: incidents)),
                     );
-                  } : null,
-                  isEnabled: isConnected,
+                  },
+                  isEnabled: true, // Toujours activé
                 ),
                 _buildActionCard(
                   title: isConnected ? 'Bluetooth Connected' : 'Connect Bluetooth',
