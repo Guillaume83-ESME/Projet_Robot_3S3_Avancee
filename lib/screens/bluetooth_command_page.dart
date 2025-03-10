@@ -127,16 +127,9 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
   Future<int> _getCommandCount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonString = prefs.getString('commands');
-      if (jsonString != null) {
-        final jsonList = json.decode(jsonString) as List<dynamic>;
-        return jsonList.length;
-      } else {
-        // Essayer avec l'autre format de stockage
-        List<String>? commandsJson = prefs.getStringList('commands');
-        if (commandsJson != null) {
-          return commandsJson.length;
-        }
+      List<String>? commandsJson = prefs.getStringList('commands');
+      if (commandsJson != null && commandsJson.isNotEmpty) {
+        return commandsJson.length;
       }
     } catch (e) {
       print('Erreur lors de la récupération des commandes: $e');
@@ -147,16 +140,9 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
   Future<int> _getActionCount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonString = prefs.getString('actions');
-      if (jsonString != null) {
-        final jsonList = json.decode(jsonString) as List<dynamic>;
-        return jsonList.length;
-      } else {
-        // Essayer avec l'autre format de stockage
-        List<String>? actionsJson = prefs.getStringList('actions');
-        if (actionsJson != null) {
-          return actionsJson.length;
-        }
+      List<String>? actionsJson = prefs.getStringList('actions');
+      if (actionsJson != null && actionsJson.isNotEmpty) {
+        return actionsJson.length;
       }
     } catch (e) {
       print('Erreur lors de la récupération des actions: $e');
