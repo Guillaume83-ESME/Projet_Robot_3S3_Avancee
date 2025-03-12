@@ -73,10 +73,14 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
 
     _responseSubscription = bluetoothManager.responseStream.listen((response) {
       print('Réponse reçue: $response');
-      setState(() {
-        _lastResponse = response;
-        _addMessage(response, false);
-      });
+      if (mounted) {  // Vérifier si le widget est toujours monté
+        setState(() {
+          _lastResponse = response;
+          _addMessage(response, false);
+        });
+      }
+    }, onError: (error) {
+      print('Erreur dans le stream de réponses: $error');
     });
 
     _isSubscribed = true;
@@ -84,14 +88,16 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
   }
 
   void _addMessage(String text, bool isFromUser) {
-    setState(() {
-      _messages.add({
-        'text': text,
-        'isFromUser': isFromUser,
-        'timestamp': DateTime.now().millisecondsSinceEpoch
+    if (mounted) {  // Vérifier si le widget est toujours monté
+      setState(() {
+        _messages.add({
+          'text': text,
+          'isFromUser': isFromUser,
+          'timestamp': DateTime.now().millisecondsSinceEpoch
+        });
       });
-    });
-    _saveMessages();
+      _saveMessages();
+    }
   }
 
   @override

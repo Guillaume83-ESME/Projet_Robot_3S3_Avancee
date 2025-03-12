@@ -107,6 +107,22 @@ class BluetoothManager {
     }
   }
 
+  // Méthode pour décoder les données Bluetooth avec fallback
+  String _decodeBluetoothData(List<int> data) {
+    try {
+      // Essayer d'abord avec UTF-8 avec tolérance pour les caractères mal formés
+      return utf8.decode(data, allowMalformed: true);
+    } catch (e) {
+      try {
+        // Si UTF-8 échoue, utiliser Latin1 (ISO-8859-1) qui accepte tous les octets
+        return latin1.decode(data);
+      } catch (e) {
+        // Si tout échoue, retourner une représentation hexadécimale
+        return "HEX: " + data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+      }
+    }
+  }
+
   // Setup notifications for receiving data
   Future<void> _setupNotifications() async {
     if (_connectedDevice == null) return;
@@ -133,8 +149,15 @@ class BluetoothManager {
 
                 // S'assurer qu'il n'y a qu'un seul écouteur actif
                 _notificationSubscription = char.onValueReceived.listen((value) {
-                  String response = utf8.decode(value);
-                  print('BluetoothManager: Données reçues: $response');
+                  // Afficher les données brutes en hexadécimal pour le débogage
+                  String hexData = value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+                  print('BluetoothManager: Données reçues brutes (hex): $hexData');
+
+                  // Utiliser la méthode robuste de décodage
+                  String response = _decodeBluetoothData(value);
+                  print('BluetoothManager: Données reçues décodées: $response');
+
+                  // Envoyer la réponse décodée au stream
                   _responseController.add(response);
                 });
 
@@ -205,8 +228,15 @@ class BluetoothManager {
         await _notificationSubscription?.cancel();
 
         _notificationSubscription = targetChar.onValueReceived.listen((value) {
-          String response = utf8.decode(value);
-          print('BluetoothManager: Données reçues après envoi: $response');
+          // Afficher les données brutes en hexadécimal pour le débogage
+          String hexData = value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+          print('BluetoothManager: Données reçues brutes après envoi (hex): $hexData');
+
+          // Utiliser la méthode robuste de décodage
+          String response = _decodeBluetoothData(value);
+          print('BluetoothManager: Données reçues décodées après envoi: $response');
+
+          // Envoyer la réponse décodée au stream
           _responseController.add(response);
         });
       }
