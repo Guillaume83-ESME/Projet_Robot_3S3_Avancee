@@ -110,15 +110,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     switch (actionType) {
       case "STOP":
-        commandToSend = "stop robot";
+        commandToSend = "stop robot"+"\n";
         displayAction = "Stop Robot";
         break;
       case "SEARCH":
-        commandToSend = "search object";
+        commandToSend = "search object"+"\n";
         displayAction = "Search Object";
         break;
       default:
-        commandToSend = actionType.toLowerCase();
+        commandToSend = actionType.toLowerCase()+"\n";
         displayAction = actionType;
     }
 
