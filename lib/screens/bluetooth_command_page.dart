@@ -4,6 +4,7 @@ import 'bluetooth_state_manager.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:intl/intl.dart';
 import '../models/incident.dart';
 import '../models/command.dart';
 import '../models/robot_action.dart';
@@ -77,6 +78,33 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
         setState(() {
           _lastResponse = response;
           _addMessage(response, false);
+
+          // Vérifier le type de message reçu
+          String responseLower = response.toLowerCase();
+
+          // Vérifier si c'est un incident
+          if (responseLower.contains("incident detecte")) {
+            _addIncidentFromMessage(response);
+          }
+
+          // Vérifier si c'est une action
+          if (responseLower.contains("action effectuee") ||
+              responseLower.contains("arret du robot") ||
+              responseLower.contains("demarrage du robot") ||
+              responseLower.contains("objet trouve")) {
+            _addActionFromMessage(response);
+            print('Action détectée: $response');
+          }
+
+          // Vérifier si c'est une commande
+          if (responseLower.contains("demande")) {
+            if (responseLower.contains("demarrage") ||
+                responseLower.contains("arret")) {
+              _addCommandFromMessage(response);
+            }
+          } else if (responseLower.contains("recherche objet")) {
+            _addCommandFromMessage(response);
+          }
         });
       }
     }, onError: (error) {
@@ -85,6 +113,188 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
 
     _isSubscribed = true;
     print('Abonnement aux réponses configuré');
+  }
+
+  // Méthode pour ajouter un incident à partir d'un message
+  Future<void> _addIncidentFromMessage(String message) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Récupérer les incidents existants
+      List<String>? incidentsJson = prefs.getStringList('incidents') ?? [];
+      List<Incident> incidents = incidentsJson
+          .map((json) => Incident.fromJson(jsonDecode(json)))
+          .toList();
+
+      // Créer un nouvel ID (le plus grand ID + 1)
+      int newId = 1;
+      if (incidents.isNotEmpty) {
+        newId = incidents.map((i) => i.id).reduce((a, b) => a > b ? a : b) + 1;
+      }
+
+      // Créer un nouvel incident
+      String time = DateFormat('HH:mm:ss').format(DateTime.now());
+      Incident newIncident = Incident(
+          id: newId,
+          description: message,
+          time: time
+      );
+
+      // Ajouter l'incident à la liste
+      incidents.add(newIncident);
+
+      // Sauvegarder la liste mise à jour
+      List<String> updatedIncidentsJson = incidents
+          .map((incident) => jsonEncode(incident.toJson()))
+          .toList();
+
+      await prefs.setStringList('incidents', updatedIncidentsJson);
+
+      // Afficher un message de confirmation
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Nouvel incident ajouté à la liste des incidents'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          )
+      );
+
+      print('Incident ajouté: $message');
+    } catch (e) {
+      print('Erreur lors de l\'ajout de l\'incident: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de l\'ajout de l\'incident: $e'),
+            backgroundColor: Colors.red,
+          )
+      );
+    }
+  }
+
+  // Méthode pour ajouter une action à partir d'un message
+  Future<void> _addActionFromMessage(String message) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Récupérer les actions existantes au format StringList (utilisé par HomePage)
+      List<String>? actionsJsonList = prefs.getStringList('actions') ?? [];
+      List<RobotAction> actions = actionsJsonList
+          .map((json) => RobotAction.fromJson(jsonDecode(json)))
+          .toList();
+
+      print('Actions existantes récupérées: ${actions.length}');
+
+      // Créer un nouvel ID (le plus grand ID + 1)
+      int newId = 1;
+      if (actions.isNotEmpty) {
+        newId = actions.map((a) => a.id).reduce((a, b) => a > b ? a : b) + 1;
+      }
+
+      // Créer une nouvelle action
+      String time = DateFormat('HH:mm:ss').format(DateTime.now());
+      RobotAction newAction = RobotAction(
+          id: newId,
+          description: message,
+          time: time
+      );
+
+      // Ajouter l'action à la liste
+      actions.add(newAction);
+
+      // Sauvegarder la liste mise à jour au format StringList
+      List<String> updatedActionsJsonList = actions
+          .map((action) => jsonEncode(action.toJson()))
+          .toList();
+
+      await prefs.setStringList('actions', updatedActionsJsonList);
+
+      print('Action ajoutée avec succès: $message');
+      print('Nombre total d\'actions: ${actions.length}');
+
+      // Afficher un message de confirmation
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Nouvelle action ajoutée à la liste des actions'),
+              backgroundColor: Colors.blue,
+              duration: Duration(seconds: 3),
+            )
+        );
+      }
+    } catch (e) {
+      print('Erreur lors de l\'ajout de l\'action: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur lors de l\'ajout de l\'action: $e'),
+              backgroundColor: Colors.red,
+            )
+        );
+      }
+    }
+  }
+
+  // Méthode pour ajouter une commande à partir d'un message
+  Future<void> _addCommandFromMessage(String message) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Récupérer les commandes existantes au format StringList (utilisé par HomePage)
+      List<String>? commandsJsonList = prefs.getStringList('commands') ?? [];
+      List<Command> commands = commandsJsonList
+          .map((json) => Command.fromJson(jsonDecode(json)))
+          .toList();
+
+      print('Commandes existantes récupérées: ${commands.length}');
+
+      // Créer un nouvel ID (le plus grand ID + 1)
+      int newId = 1;
+      if (commands.isNotEmpty) {
+        newId = commands.map((c) => c.id).reduce((a, b) => a > b ? a : b) + 1;
+      }
+
+      // Créer une nouvelle commande
+      String time = DateFormat('HH:mm:ss').format(DateTime.now());
+      Command newCommand = Command(
+          id: newId,
+          action: message,
+          time: time
+      );
+
+      // Ajouter la commande à la liste
+      commands.add(newCommand);
+
+      // Sauvegarder la liste mise à jour au format StringList
+      List<String> updatedCommandsJsonList = commands
+          .map((command) => jsonEncode(command.toJson()))
+          .toList();
+
+      await prefs.setStringList('commands', updatedCommandsJsonList);
+
+      print('Commande ajoutée avec succès: $message');
+      print('Nombre total de commandes: ${commands.length}');
+
+      // Afficher un message de confirmation
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Nouvelle commande ajoutée à la liste des commandes'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            )
+        );
+      }
+    } catch (e) {
+      print('Erreur lors de l\'ajout de la commande: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur lors de l\'ajout de la commande: $e'),
+              backgroundColor: Colors.red,
+            )
+        );
+      }
+    }
   }
 
   void _addMessage(String text, bool isFromUser) {
@@ -133,9 +343,9 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
   Future<int> _getCommandCount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      List<String>? commandsJson = prefs.getStringList('commands');
-      if (commandsJson != null && commandsJson.isNotEmpty) {
-        return commandsJson.length;
+      List<String>? commandsJsonList = prefs.getStringList('commands');
+      if (commandsJsonList != null) {
+        return commandsJsonList.length;
       }
     } catch (e) {
       print('Erreur lors de la récupération des commandes: $e');
@@ -146,9 +356,9 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
   Future<int> _getActionCount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      List<String>? actionsJson = prefs.getStringList('actions');
-      if (actionsJson != null && actionsJson.isNotEmpty) {
-        return actionsJson.length;
+      List<String>? actionsJsonList = prefs.getStringList('actions');
+      if (actionsJsonList != null) {
+        return actionsJsonList.length;
       }
     } catch (e) {
       print('Erreur lors de la récupération des actions: $e');

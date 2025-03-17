@@ -55,12 +55,11 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
 
   Future<void> loadActions() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString('actions');
-    if (jsonString != null) {
-      final jsonList = json.decode(jsonString) as List<dynamic>;
+    final List<String>? actionsJsonList = prefs.getStringList('actions');
+    if (actionsJsonList != null && actionsJsonList.isNotEmpty) {
       setState(() {
         widget.actions.clear();
-        widget.actions.addAll(jsonList.map((e) => RobotAction.fromJson(e)).toList());
+        widget.actions.addAll(actionsJsonList.map((json) => RobotAction.fromJson(jsonDecode(json))).toList());
         filteredActions = List.from(widget.actions);
         applyFilter(selectedFilter);
       });
@@ -69,8 +68,8 @@ class _ActionsListPageState extends State<ActionsListPage> with SingleTickerProv
 
   Future<void> saveActions() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonString = json.encode(widget.actions.map((e) => e.toJson()).toList());
-    await prefs.setString('actions', jsonString);
+    final List<String> actionsJsonList = widget.actions.map((e) => jsonEncode(e.toJson())).toList();
+    await prefs.setStringList('actions', actionsJsonList);
   }
 
   void applyFilter(String filter) {

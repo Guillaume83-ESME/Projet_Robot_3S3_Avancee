@@ -55,12 +55,11 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
 
   Future<void> loadCommands() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString('commands');
-    if (jsonString != null) {
-      final jsonList = json.decode(jsonString) as List<dynamic>;
+    final List<String>? commandsJsonList = prefs.getStringList('commands');
+    if (commandsJsonList != null && commandsJsonList.isNotEmpty) {
       setState(() {
         widget.commands.clear();
-        widget.commands.addAll(jsonList.map((e) => Command.fromJson(e)).toList());
+        widget.commands.addAll(commandsJsonList.map((json) => Command.fromJson(jsonDecode(json))).toList());
         filteredCommands = List.from(widget.commands);
         applyFilter(selectedFilter);
       });
@@ -69,8 +68,8 @@ class _CommandListPageState extends State<CommandListPage> with SingleTickerProv
 
   Future<void> saveCommands() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonString = json.encode(widget.commands.map((e) => e.toJson()).toList());
-    await prefs.setString('commands', jsonString);
+    final List<String> commandsJsonList = widget.commands.map((e) => jsonEncode(e.toJson())).toList();
+    await prefs.setStringList('commands', commandsJsonList);
   }
 
   void applyFilter(String filter) {
