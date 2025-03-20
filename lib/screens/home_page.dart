@@ -110,15 +110,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     switch (actionType) {
       case "STOP":
-        commandToSend = "stop robot"+"\n";
+        commandToSend = "stop\r\n";
         displayAction = "Stop Robot";
         break;
       case "SEARCH":
-        commandToSend = "search object"+"\n";
+        commandToSend = "search\r\n";
         displayAction = "Search Object";
         break;
       default:
-        commandToSend = actionType.toLowerCase()+"\n";
+        commandToSend = actionType.toLowerCase() + "\r\n";
         displayAction = actionType;
     }
 
@@ -136,6 +136,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
     if (bluetoothManager.isConnected) {
       try {
+        // Nous n'ajoutons pas manuellement le message à l'historique ici
+        // Le BluetoothStateManager s'en chargera via son responseStream
         await bluetoothManager.sendBluetoothData(commandToSend);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Commande "$displayAction" envoyée via Bluetooth')),

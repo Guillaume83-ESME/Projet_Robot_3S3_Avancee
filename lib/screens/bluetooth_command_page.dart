@@ -382,8 +382,8 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
       return;
     }
 
-    String commandToSend = _commandController.text.trim();
-    _addMessage(commandToSend, true);
+    String commandToSend = _commandController.text.trim() + '\r\n';
+    _addMessage(commandToSend.trim(), true);
 
     // Commandes spéciales
     String commandLower = commandToSend.toLowerCase();
