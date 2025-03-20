@@ -9,6 +9,40 @@ import '../models/incident.dart';
 import '../models/command.dart';
 import '../models/robot_action.dart';
 
+// Clé pour stocker les messages Bluetooth dans SharedPreferences
+const String BLUETOOTH_MESSAGES_KEY = 'bluetooth_messages';
+
+// Fonction utilitaire pour ajouter un message à l'historique partagé
+Future<void> addSharedBluetoothMessage(String text, bool isFromUser) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> messagesJson = prefs.getStringList(BLUETOOTH_MESSAGES_KEY) ?? [];
+
+    List<Map<String, dynamic>> messages = messagesJson
+        .map((json) => Map<String, dynamic>.from(jsonDecode(json)))
+        .toList();
+
+    messages.add({
+      'text': text,
+      'isFromUser': isFromUser,
+      'timestamp': DateTime.now().millisecondsSinceEpoch
+    });
+
+    // Limiter à 100 messages pour éviter de surcharger SharedPreferences
+    if (messages.length > 100) {
+      messages = messages.sublist(messages.length - 100);
+    }
+
+    List<String> updatedMessagesJson = messages
+        .map((message) => jsonEncode(message))
+        .toList();
+
+    await prefs.setStringList(BLUETOOTH_MESSAGES_KEY, updatedMessagesJson);
+  } catch (e) {
+    print('Erreur lors de l\'ajout du message partagé: $e');
+  }
+}
+
 class BluetoothCommandPage extends StatefulWidget {
   @override
   _BluetoothCommandPageState createState() => _BluetoothCommandPageState();
@@ -38,7 +72,7 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
     setState(() => _isLoading = true);
     try {
       final prefs = await SharedPreferences.getInstance();
-      final messagesJson = prefs.getStringList('bluetooth_messages') ?? [];
+      final messagesJson = prefs.getStringList(BLUETOOTH_MESSAGES_KEY) ?? [];
       setState(() {
         _messages = messagesJson
             .map((json) => Map<String, dynamic>.from(jsonDecode(json)))
@@ -57,7 +91,7 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
       final messagesJson = _messages
           .map((message) => jsonEncode(message))
           .toList();
-      await prefs.setStringList('bluetooth_messages', messagesJson);
+      await prefs.setStringList(BLUETOOTH_MESSAGES_KEY, messagesJson);
     } catch (e) {
       print('Erreur lors de la sauvegarde des messages: $e');
     }
@@ -297,7 +331,7 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
     }
   }
 
-  void _addMessage(String text, bool isFromUser) {
+  void _addMessage(String text, bool isFromUser) async {
     if (mounted) {  // Vérifier si le widget est toujours monté
       setState(() {
         _messages.add({
@@ -306,7 +340,10 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
           'timestamp': DateTime.now().millisecondsSinceEpoch
         });
       });
-      _saveMessages();
+      await _saveMessages();
+
+      // Ajouter également au stockage partagé
+      await addSharedBluetoothMessage(text, isFromUser);
     }
   }
 
@@ -429,11 +466,16 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
             child: Text('Annuler'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               setState(() {
                 _messages.clear();
               });
-              _saveMessages();
+              await _saveMessages();
+
+              // Effacer également les messages partagés
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setStringList(BLUETOOTH_MESSAGES_KEY, []);
+
               Navigator.of(context).pop();
             },
             child: Text('Effacer'),
@@ -663,4 +705,3 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
     );
   }
 }
-

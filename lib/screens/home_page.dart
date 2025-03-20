@@ -14,7 +14,8 @@ import 'battery_status_page.dart';
 import '../widgets/battery_icon.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-import 'bluetooth_command_page.dart';
+import 'bluetooth_command_page.dart'; // Importer pour utiliser addSharedBluetoothMessage
+import 'dart:async';
 
 class HomePage extends StatefulWidget {
   @override
@@ -28,6 +29,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   final BatteryIcon batteryIcon = BatteryIcon(percentage: 100);
   late AnimationController _animationController;
   late Animation<double> _animation;
+  StreamSubscription? _responseSubscription;
+  String _lastResponse = '';
+  bool _showResponseDialog = false;
 
   @override
   void initState() {
@@ -36,6 +40,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     loadActions();
     loadIncidents();
     _initBluetooth();
+    _setupResponseListener();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -50,6 +55,131 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   Future<void> _initBluetooth() async {
     final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
     await bluetoothManager.initializeBluetooth();
+  }
+
+  void _setupResponseListener() {
+    final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
+
+    // Cancel existing subscription to avoid duplicate listeners
+    _responseSubscription?.cancel();
+
+    _responseSubscription = bluetoothManager.responseStream.listen((response) async {
+      print('HomePage: response received: $response');
+
+      // Ajouter la réponse du robot à l'historique des messages partagés
+      await addSharedBluetoothMessage(response, false);
+
+      setState(() {
+        _lastResponse = response;
+
+        // Check if it's a response to a stop or search command
+        String responseLower = response.toLowerCase();
+        if (responseLower.contains("arret") ||
+            responseLower.contains("stop") ||
+            responseLower.contains("recherche") ||
+            responseLower.contains("search")) {
+
+          _showResponseDialog = true;
+
+          // Show the response dialog
+          _showRobotResponseDialog(response);
+
+          // Process the response according to its type
+          if (responseLower.contains("incident")) {
+            _addIncidentFromResponse(response);
+          }
+        }
+      });
+    }, onError: (error) {
+      print('Error in response stream: $error');
+    });
+  }
+
+  void _showRobotResponseDialog(String response) {
+    // Only show dialog if we're mounted and app is active
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.smart_toy, color: Colors.blue),
+                SizedBox(width: 10),
+                Text('Réponse du Robot'),
+              ],
+            ),
+            content: Text(response),
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  setState(() {
+                    _showResponseDialog = false;
+                  });
+                },
+                child: Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  Future<void> _addIncidentFromResponse(String response) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Get existing incidents
+      List<String>? incidentsJson = prefs.getStringList('incidents') ?? [];
+      List<Incident> incidents = incidentsJson
+          .map((json) => Incident.fromJson(jsonDecode(json)))
+          .toList();
+
+      // Create new ID
+      int newId = 1;
+      if (incidents.isNotEmpty) {
+        newId = incidents.map((i) => i.id).reduce((a, b) => a > b ? a : b) + 1;
+      }
+
+      // Create new incident
+      String time = DateFormat('HH:mm:ss').format(DateTime.now());
+      Incident newIncident = Incident(
+          id: newId,
+          description: response,
+          time: time
+      );
+
+      // Add incident to list
+      incidents.add(newIncident);
+
+      // Save updated list
+      List<String> updatedIncidentsJson = incidents
+          .map((incident) => jsonEncode(incident.toJson()))
+          .toList();
+
+      await prefs.setStringList('incidents', updatedIncidentsJson);
+
+      // Update local list
+      setState(() {
+        this.incidents.clear();
+        this.incidents.addAll(incidents);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Nouvel incident détecté et ajouté'),
+            backgroundColor: Colors.red,
+          )
+      );
+    } catch (e) {
+      print('Error adding incident from response: $e');
+    }
   }
 
   Future<void> loadActions() async {
@@ -136,12 +266,27 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     final bluetoothManager = Provider.of<BluetoothStateManager>(context, listen: false);
     if (bluetoothManager.isConnected) {
       try {
-        // Nous n'ajoutons pas manuellement le message à l'historique ici
-        // Le BluetoothStateManager s'en chargera via son responseStream
-        await bluetoothManager.sendBluetoothData(commandToSend);
+        // Show a loading indicator
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Commande "$displayAction" envoyée via Bluetooth')),
+          SnackBar(
+            content: Row(
+              children: [
+                CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                SizedBox(width: 10),
+                Text('Envoi de la commande "$displayAction"...'),
+              ],
+            ),
+            duration: Duration(seconds: 2),
+          ),
         );
+
+        // Ajouter la commande à l'historique des messages Bluetooth partagés
+        await addSharedBluetoothMessage(commandToSend.trim(), true);
+
+        // Send the command to the robot
+        await bluetoothManager.sendBluetoothData(commandToSend);
+
+        // Response will be handled by the responseStream listener
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur d\'envoi Bluetooth: $e')),
@@ -152,10 +297,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         SnackBar(content: Text('Non connecté en Bluetooth. Action enregistrée localement.')),
       );
     }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$displayAction créé !')),
-    );
   }
 
   void _resetActions() async {
@@ -194,6 +335,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   @override
   void dispose() {
     _animationController.dispose();
+    _responseSubscription?.cancel();
     super.dispose();
   }
 
@@ -246,6 +388,27 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               style: TextStyle(color: Colors.white),
             ),
           ),
+          // Add an indicator to show the last response
+          if (_lastResponse.isNotEmpty && !_showResponseDialog)
+            GestureDetector(
+              onTap: () {
+                _showRobotResponseDialog(_lastResponse);
+              },
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.message, color: Colors.white, size: 14),
+                    SizedBox(width: 4),
+                    Text('Voir message', style: TextStyle(color: Colors.white, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -492,4 +655,3 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 }
-
