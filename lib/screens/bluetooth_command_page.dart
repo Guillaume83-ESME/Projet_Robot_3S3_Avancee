@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../models/incident.dart';
 import '../models/command.dart';
 import '../models/robot_action.dart';
+import 'package:flutter/services.dart';
 
 // Clé pour stocker les messages Bluetooth dans SharedPreferences
 const String BLUETOOTH_MESSAGES_KEY = 'bluetooth_messages';
@@ -22,10 +23,35 @@ Future<void> addSharedBluetoothMessage(String text, bool isFromUser) async {
         .map((json) => Map<String, dynamic>.from(jsonDecode(json)))
         .toList();
 
+    // Si le message n'est pas de l'utilisateur (donc du robot) et qu'il y a des messages précédents
+    if (!isFromUser && messages.isNotEmpty) {
+      // Vérifier si le dernier message est aussi du robot et a été reçu dans les 2 dernières secondes
+      final lastMessage = messages.isNotEmpty ? messages.last : null;
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      if (lastMessage != null &&
+          lastMessage['isFromUser'] == false &&
+          (now - (lastMessage['timestamp'] as int) < 2000)) {
+        // Concaténer avec le message précédent au lieu d'ajouter un nouveau
+        lastMessage['text'] = lastMessage['text'] + text;
+        lastMessage['timestamp'] = now; // Mettre à jour le timestamp
+
+        // Mettre à jour la liste des messages
+        List<String> updatedMessagesJson = messages
+            .map((message) => jsonEncode(message))
+            .toList();
+
+        await prefs.setStringList(BLUETOOTH_MESSAGES_KEY, updatedMessagesJson);
+        return; // Sortir de la fonction car le message a été fusionné
+      }
+    }
+
+    // Si on arrive ici, c'est qu'on n'a pas fusionné le message, donc on l'ajoute normalement
     messages.add({
       'text': text,
       'isFromUser': isFromUser,
-      'timestamp': DateTime.now().millisecondsSinceEpoch
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'isExpanded': false // Pour la fonctionnalité "Lire la suite"
     });
 
     // Limiter à 100 messages pour éviter de surcharger SharedPreferences
@@ -56,6 +82,10 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
   bool _isLoading = false;
   bool _isSubscribed = false;
 
+  // Buffer pour agréger les messages du robot
+  String _messageBuffer = '';
+  Timer? _bufferTimer;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -77,6 +107,13 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
         _messages = messagesJson
             .map((json) => Map<String, dynamic>.from(jsonDecode(json)))
             .toList();
+
+        // S'assurer que tous les messages ont la propriété isExpanded
+        for (var message in _messages) {
+          if (!message.containsKey('isExpanded')) {
+            message['isExpanded'] = false;
+          }
+        }
       });
     } catch (e) {
       print('Erreur lors du chargement des messages: $e');
@@ -109,37 +146,7 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
     _responseSubscription = bluetoothManager.responseStream.listen((response) {
       print('Réponse reçue: $response');
       if (mounted) {  // Vérifier si le widget est toujours monté
-        setState(() {
-          _lastResponse = response;
-          _addMessage(response, false);
-
-          // Vérifier le type de message reçu
-          String responseLower = response.toLowerCase();
-
-          // Vérifier si c'est un incident
-          if (responseLower.contains("incident detecte")) {
-            _addIncidentFromMessage(response);
-          }
-
-          // Vérifier si c'est une action
-          if (responseLower.contains("action effectuee") ||
-              responseLower.contains("arret du robot") ||
-              responseLower.contains("demarrage du robot") ||
-              responseLower.contains("objet trouve")) {
-            _addActionFromMessage(response);
-            print('Action détectée: $response');
-          }
-
-          // Vérifier si c'est une commande
-          if (responseLower.contains("demande")) {
-            if (responseLower.contains("demarrage") ||
-                responseLower.contains("arret")) {
-              _addCommandFromMessage(response);
-            }
-          } else if (responseLower.contains("recherche objet")) {
-            _addCommandFromMessage(response);
-          }
-        });
+        _processRobotResponse(response);
       }
     }, onError: (error) {
       print('Erreur dans le stream de réponses: $error');
@@ -147,6 +154,55 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
 
     _isSubscribed = true;
     print('Abonnement aux réponses configuré');
+  }
+
+  void _processRobotResponse(String response) {
+    // Annuler le timer existant s'il y en a un
+    _bufferTimer?.cancel();
+
+    // Ajouter la réponse au buffer
+    _messageBuffer += response;
+
+    // Définir un nouveau timer pour traiter le buffer après un délai
+    // Cela permet d'agréger plusieurs fragments reçus rapidement
+    _bufferTimer = Timer(Duration(milliseconds: 500), () {
+      if (_messageBuffer.isNotEmpty) {
+        setState(() {
+          _lastResponse = _messageBuffer;
+          _addMessage(_messageBuffer, false);
+
+          // Traiter le message agrégé
+          String responseLower = _messageBuffer.toLowerCase();
+
+          // Vérifier si c'est un incident
+          if (responseLower.contains("incident detecte")) {
+            _addIncidentFromMessage(_messageBuffer);
+          }
+
+          // Vérifier si c'est une action
+          if (responseLower.contains("action effectuee") ||
+              responseLower.contains("arret du robot") ||
+              responseLower.contains("demarrage du robot") ||
+              responseLower.contains("objet trouve")) {
+            _addActionFromMessage(_messageBuffer);
+            print('Action détectée: $_messageBuffer');
+          }
+
+          // Vérifier si c'est une commande
+          if (responseLower.contains("demande")) {
+            if (responseLower.contains("demarrage") ||
+                responseLower.contains("arret")) {
+              _addCommandFromMessage(_messageBuffer);
+            }
+          } else if (responseLower.contains("recherche objet")) {
+            _addCommandFromMessage(_messageBuffer);
+          }
+
+          // Réinitialiser le buffer
+          _messageBuffer = '';
+        });
+      }
+    });
   }
 
   // Méthode pour ajouter un incident à partir d'un message
@@ -333,17 +389,37 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
 
   void _addMessage(String text, bool isFromUser) async {
     if (mounted) {  // Vérifier si le widget est toujours monté
-      setState(() {
-        _messages.add({
-          'text': text,
-          'isFromUser': isFromUser,
-          'timestamp': DateTime.now().millisecondsSinceEpoch
-        });
-      });
-      await _saveMessages();
+      // Vérifier si on peut fusionner avec le dernier message
+      bool merged = false;
 
-      // Ajouter également au stockage partagé
-      await addSharedBluetoothMessage(text, isFromUser);
+      if (!isFromUser && _messages.isNotEmpty) {
+        final lastMessage = _messages.last;
+        final now = DateTime.now().millisecondsSinceEpoch;
+
+        if (lastMessage['isFromUser'] == false &&
+            (now - (lastMessage['timestamp'] as int) < 2000)) {
+          // Fusionner avec le dernier message
+          setState(() {
+            lastMessage['text'] = lastMessage['text'] + text;
+            lastMessage['timestamp'] = now;
+          });
+          merged = true;
+        }
+      }
+
+      // Si pas fusionné, ajouter comme nouveau message
+      if (!merged) {
+        setState(() {
+          _messages.add({
+            'text': text,
+            'isFromUser': isFromUser,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+            'isExpanded': false
+          });
+        });
+      }
+
+      await _saveMessages();
     }
   }
 
@@ -351,6 +427,7 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
   void dispose() {
     print('Dispose appelé - annulation de l\'abonnement');
     _responseSubscription?.cancel();
+    _bufferTimer?.cancel();
     _commandController.dispose();
     _isSubscribed = false;
     super.dispose();
@@ -360,6 +437,7 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
   void deactivate() {
     print('Deactivate appelé - annulation de l\'abonnement');
     _responseSubscription?.cancel();
+    _bufferTimer?.cancel();
     _isSubscribed = false;
     super.deactivate();
   }
@@ -425,21 +503,21 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
     // Commandes spéciales
     String commandLower = commandToSend.toLowerCase();
 
-    if (commandLower == 'incident') {
+    if (commandLower == 'incidents\r\n') {
       int incidentCount = await _getIncidentCount();
       _addMessage('Il y a actuellement $incidentCount incident(s) enregistré(s).', false);
       _commandController.clear();
       return;
     }
 
-    if (commandLower == 'commande' || commandLower == 'commandes') {
+    if (commandLower == 'commande\r\n' || commandLower == 'commandes\r\n') {
       int commandCount = await _getCommandCount();
       _addMessage('Vous avez effectué $commandCount commande(s).', false);
       _commandController.clear();
       return;
     }
 
-    if (commandLower == 'action' || commandLower == 'actions') {
+    if (commandLower == 'action\r\n' || commandLower == 'actions\r\n') {
       int actionCount = await _getActionCount();
       _addMessage('Le robot a effectué $actionCount action(s).', false);
       _commandController.clear();
@@ -482,6 +560,51 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
           ),
         ],
       ),
+    );
+  }
+
+  // Méthode pour afficher le message complet dans une boîte de dialogue
+  void _showFullMessageDialog(BuildContext context, String message, bool isFromUser) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                isFromUser ? Icons.person : Icons.android,
+                color: isFromUser ? Colors.blue : Colors.green,
+              ),
+              SizedBox(width: 10),
+              Text(isFromUser ? 'Votre message' : 'Message du Robot'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Text(message),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Fermer'),
+            ),
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: message));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Message copié dans le presse-papiers'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+                Navigator.of(context).pop();
+              },
+              child: Text('Copier'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -611,6 +734,14 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
         final isFromUser = message['isFromUser'] as bool;
         final text = message['text'] as String;
 
+        // Déterminer si le message est long (plus de 100 caractères)
+        bool isLongMessage = text.length > 100;
+
+        // Texte à afficher (tronqué ou complet selon l'état d'expansion)
+        String displayText = isLongMessage && message['isExpanded'] == false
+            ? text.substring(0, 100) + '...'
+            : text;
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 12.0),
           child: Row(
@@ -644,9 +775,48 @@ class _BluetoothCommandPageState extends State<BluetoothCommandPage> with Automa
                       ),
                       SizedBox(height: 4),
                       Text(
-                        text,
+                        displayText,
                         style: TextStyle(color: Colors.white),
                       ),
+                      // Afficher le bouton "Lire la suite" si le message est long
+                      if (isLongMessage)
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              // Inverser l'état d'expansion
+                              message['isExpanded'] = !message['isExpanded'];
+                            });
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              message['isExpanded'] == true ? 'Voir moins' : 'Lire la suite',
+                              style: TextStyle(
+                                color: Colors.lightBlueAccent,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ),
+                      // Alternative: bouton pour voir le message complet dans une boîte de dialogue
+                      if (isLongMessage)
+                        GestureDetector(
+                          onTap: () {
+                            _showFullMessageDialog(context, text, isFromUser);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Text(
+                              'Voir tout dans une fenêtre',
+                              style: TextStyle(
+                                color: Colors.amber,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
